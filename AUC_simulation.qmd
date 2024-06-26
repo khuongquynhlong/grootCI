@@ -540,7 +540,7 @@ Based on these three confounding scenarios, we set up the simulation with four s
 
 #### Data generation
 
-The data for each scenario was generated according to its confounding mechanism. The magnitude of the relationship between variables was reflected by the coefficients. For each scenario, we created datasets with 1000 samples. A loop of 1000 iterations was then performed, and the everage bias over 1000 iterations were obtained. The R code is provided in the [this GitHub repository](https://github.com/khuongquynhlong). The details of each scenario are given in the following sections.
+The data for each scenario was generated according to its confounding mechanism. The magnitude of the relationship between variables was reflected by the coefficients. For each scenario, we created datasets with 1000 samples. A loop of 1000 iterations was then performed, and the everage bias over 1000 iterations were obtained. The R code is provided in the [this GitHub repository](https://github.com/khuongquynhlong/grootCI). The details of each scenario are given in the following sections.
 
 ##### Scenario 1: "Small" confounding
 
@@ -1140,7 +1140,7 @@ The table below display the comparison between perfomance between different meth
 ave_bias_tab <- NULL
 
 for (k in c("small", "medium", "large")) {
-  for (i in 1:100) {
+  for (i in 1:1000) {
     df_out          <- doSimulation(n = 1000, scen = k, seed = i)
     df_out$scenario <- k
     df_out$iter     <- i
