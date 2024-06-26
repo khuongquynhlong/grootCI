@@ -1,0 +1,1166 @@
+---
+title: 'Extension of the Group Response Outcome Over Time Method: Simulation Study'
+subtitle: "Summer Lab Rotation with Dr. Farrar (Work in progress)"
+author: 'Long Khuong'
+date: last-modified
+date-format: "MM-DD-YYYY"
+title-block-banner: "#011F5B"
+format: 
+  html:
+    page-layout: article
+    grid:
+      sidebar-width: 250px
+      body-width: 1250px
+      margin-width: 0px
+      gutter-width: 1.5rem
+    embed-resources: true
+    smooth-scroll: true
+    theme: lumen
+    toc: true
+    toc-depth: 6
+    toc-location: left
+    toc-title: Summary
+    df_print: kable
+    urlcolor: orange
+    linkcolor: orange
+    code-fold: true
+execute:
+  warning: false
+# css: style.css
+---
+
+```{r, warning=FALSE, message=F}
+library(tidyverse)
+library(mgcv)
+library(splines)
+library(survey)
+```
+
+# Overview {#sec-overview}
+
+This simulation was conducted to propose some extension to the method of Group Response Outcome Over Time (GROOT) for longitudinal analyses of patient-level outcomes proposed by Ian DeLorey, John Farrar, et al (2024).
+
+We organized the workflow into 3 main Sections:
+
+-   Section 1: to compare the statistical power of GROOT approach to the commonly used statistical models to analyze patient-reported outcomes.
+-   Section 2: to develope model-based GROOT and compare estimates to the non-parametric GROOT
+-   Section 3: to extend the model-based GROOT to account for confounders using causal inference approach (e.g., g-methods)
+
+We utilized the simulation approach to serve the three aims We did simulation in the context of pain research with the outcome evaluated using the Numeric Rating Scale (NRS), with the score ranging from 0 (no pain) to 10 (most intensive).
+
+## Aim 1: Comparing power {#sec-aim1}
+
+In this section, we first simulate the the responses in the NRS scale in a parallel-group RCT with two arms: new drug (*"Treatment"*) compare to an active control (*"Control"*) , over the period of 24 hours. We assumed patients response to both treatments with *"typical curve"* with 3 phases: fast response, maintainance, and losing effect.
+
+We then compared the power of non-parametric GROOT estimate with traditional longitudinal approachs of analyzing categorical reponse. The statistical power was calculated as the proportion of time reaching statistical significance in a 1000-iteration run. For simplicity, we choose the Clinicially Meaningful Response (CMR) $\delta$ as $>50 \%$ improvement in the NRS using a modified percent change from baseline.
+
+### Define all functions
+
+::: panel-tabset
+#### Function 1
+
+**Set up the "natural response curves" to the active treatments**
+
+```{r}
+dat_guide_funct <- function(n_measure = 25, arm_name = c("Treatment", "Control"), diff_ratio = 0.08) {
+  
+  # Data to guide simulation, can change it to a distribution if needed
+  xdat <- c(0, 1, 3, 5, 7, 9, 12, 15, 18, 21, 24)
+  ydat <- c(9, 3, 2, 1, 1, 1.2, 1.5, 1.8, 2, 2.5, 3)
+  
+  data <- data.frame(x = xdat, y = ydat)
+  
+  # Fit a loess
+  fit <- loess(y ~ x, data = data)
+  
+  # Generate data for plotting the fitted curve
+  x_fit <- 1:(n_measure-1)
+  
+  # Mean group A
+  y_mA <- predict(fit, newdata = data.frame(x = x_fit))
+  y_mB <- y_mA + y_mA*diff_ratio*(abs(x_fit - mean(x_fit)+5)) + rnorm(length(y_mA), 0, 0.1)
+  
+  # Add baseline value
+  y_mA <- c(9, y_mA)
+  y_mB <- c(9, y_mB)
+  
+  df <- data.frame(arm = rep(arm_name, each = n_measure), 
+                   y = c(y_mA, y_mB), 
+                   x = rep(0:(n_measure-1), 2))
+  
+  my_plot <- df |> 
+    ggplot(aes(x = as.factor(x), y = y, color = arm, group = arm)) +
+    geom_line(linewidth = 1) +
+    scale_y_continuous(breaks = 1:10) +
+    labs(x = "time", y = "NRS score") +
+    theme_bw()
+  
+  return(list(y_mA = y_mA, y_mB = y_mB, plot = my_plot))
+}
+```
+
+The *"natural response curves"* (NRS scale) is illustrated in the following figure
+
+```{r, fig.width=12, fig.height=6}
+#| label: fig-naturalrc
+#| fig-cap: "Natural response curves" 
+x <- dat_guide_funct(n_measure = 25, diff_ratio = 0.08, arm_name = c("Treatment", "Control"))
+x$plot
+```
+
+#### Function 2
+
+**To Simulate data (wide data)**
+
+```{r}
+sim_dat_wide_nocov <- function(N = 100, n_measure = 25, arm_name = c("Treatment", "Control"), diff_ratio = 0.08) {
+  dat_guide <- dat_guide_funct(n_measure = n_measure, arm_name = arm_name, diff_ratio = diff_ratio)
+  
+  y_mA <- dat_guide$y_mA
+  y_mB <- dat_guide$y_mB
+  
+  df_matA <- df_matB <- matrix(ncol = n_measure, nrow = N)
+  
+  for (i in 1:n_measure) {
+    df_matA[, i] <- extraDistr::rtpois(n = N, lambda = y_mA[i], b = 10)
+    df_matB[, i] <- extraDistr::rtpois(n = N, lambda = y_mB[i], b = 10)
+  }
+  
+  df_mat <- rbind(df_matA, df_matB) |> as.data.frame()
+  names(df_mat) <- paste0("t", 0:(n_measure - 1))
+  df_mat$id <- 1:(2*N)
+  df_mat$group <- rep(arm_name, each = N)
+  
+  return(df_mat)
+}
+
+df_wide_sim <- sim_dat_wide_nocov(N = 1000, n_measure = 25, diff_ratio = 0.08, arm_name = c("Treatment", "Control"))
+rbind(head(df_wide_sim), tail(df_wide_sim)) |> knitr::kable()
+```
+
+#### Function 3
+
+**Create response dataset (change from baseline i.e., ≥50% improvement)**
+
+```{r}
+sim_dat_change_long_nocov <- function(cutoff = -0.5, dat) 
+{
+  # generate data
+  df <- dat
+  
+  for (i in 1:nrow(df)) {
+    for (j in 2:(ncol(df)-2)) {
+      if (df[i, 1] > 0) {
+        df[i, j] <- ifelse((df[i, j] - df[i, 1])/df[i, 1] <= cutoff, 1, 0)
+      } else {
+        df[i, j] <- ifelse((df[i, j] == df[i, 1]), 1, 0)
+      }
+    }
+  }
+  
+  df[, 1] <- 0
+  
+  df_change_long <- df |>
+    gather(-c(id, group), key = "t", value = "prob") |>
+    mutate(t = parse_number(t)) |>
+    ungroup() |> as.data.frame()
+  
+  return(df_change_long)
+}
+
+df_change <- sim_dat_change_long_nocov(cutoff = -0.5, dat = df_wide_sim)
+rbind(head(df_change), tail(df_change)) |> knitr::kable()
+```
+
+**Visualize the Group response curve**
+
+```{r, fig.width=12, fig.height=6}
+# Set up the dunction
+plot_GRO <- function(dat) {
+  indat <- dat
+  plot_step <- indat |> 
+    group_by(group, t) |>
+    summarise(prob = mean(prob)) |> ungroup() |>
+    ggplot(aes(x = as.factor(t), y = prob, color = group, group = group)) +
+    geom_step(linewidth = 1, alpha = 0.7) +
+    scale_color_brewer(palette = "Set1") +
+    guides(col = guide_legend(override.aes = list(alpha = 1))) + 
+    labs(x = "time", y = "Response (%)") +
+    theme_bw()
+  
+  plot_line <- indat |> 
+    group_by(group, t) |>
+    summarise(prob = mean(prob)) |> ungroup() |>
+    ggplot(aes(x = as.factor(t), y = prob, color = group, group = group)) +
+    geom_line(linewidth = 1, alpha = 0.7) +
+    scale_color_brewer(palette = "Set1") +
+    guides(col = guide_legend(override.aes = list(alpha = 1))) + 
+    labs(x = "time", y = "Response (%)") +
+    theme_bw()
+  return(list(step = plot_step, line = plot_line))
+}
+
+y <- plot_GRO(dat = df_change)
+y$step
+```
+
+#### Function 3a
+
+**Group Responses Outcome Over Time (GROOT) based on GRO (i.e., average curve)**
+
+```{r}
+auc_funct <- function(a = 1, b, dat, idvar = "id", respvar = "prob", tvar = "t", grvar = "group") {
+  
+  auc_nonpar <- function(a = 1, b, dat, arm) {
+    dat$group <- dat[, grvar]
+    
+    indat <- dat[dat$group == arm, ]
+    
+    indat$id <- indat[, idvar]
+    indat$prob <- indat[, respvar]
+    indat$t <- indat[, tvar]
+    
+    indat_sum <- indat |> 
+      group_by(t) |>
+      summarise(prob = mean(prob, na.rm = T),
+                n = n(),
+                var = (prob*(1-prob))/(n-1)) |>
+      as.data.frame()
+    
+    # Calculate AUC as step function
+    intev       <- b - a
+    idx         <- a <= indat_sum$t & indat_sum$t <= b
+    time        <- c(indat_sum$t[idx], b)
+    resp        <- indat_sum$prob[idx]
+    var_id      <- indat_sum$var[idx]
+    time_diff   <- diff(c(time))
+    areas_diff  <- time_diff * resp/intev
+    area        <- sum(areas_diff)
+    # Check!!
+    var_area    <- sum((time_diff^2)*var_id)/(intev^2)
+    return(list(area = area, var = var_area))
+  }
+  
+  
+  multiarm <- function(val){
+    auc_nonpar(arm   = val,
+               a     = a,
+               b     = b,
+               dat   = dat)
+  }
+  
+  
+  arm_name <- as.character(unique(sort(dat$group)))
+  area_mat <- t(sapply(arm_name, multiarm))
+  
+  # Set up result matrix
+  res_mat <- cbind(area_mat, matrix(NA, length(arm_name), 6))
+  res_mat[, 3] <- unlist(res_mat[, 1]) - sqrt(unlist(res_mat[, 2]))*qnorm(1 - 0.05/2)
+  res_mat[, 4] <- unlist(res_mat[, 1]) + sqrt(unlist(res_mat[, 2]))*qnorm(1 - 0.05/2)
+  
+  if (length(arm_name) > 1) {
+    for (j in 2:length(arm_name)) {
+      # Difference
+      res_mat[j, 5] <- area_mat[[1, 1]] - area_mat[[j, 1]]
+      # SE difference
+      res_mat[j, 6] <- sqrt(area_mat[[1, 2]] + area_mat[[j, 2]])
+      # z-score
+      res_mat[j, 7] <- res_mat[[j, 5]]/res_mat[[j, 6]]
+      # p-value (1 - pchisq(res_mat[[2, 7]]^2, 1))
+      res_mat[j, 8] <- pnorm(-abs(res_mat[[j, 7]])) * 2
+    }
+  }
+  
+  colnames(res_mat) <- c("area", "var", "lb", "ub", "diff", "se_diff", "z", "pval")
+  
+  return(res_mat)
+}
+```
+
+#### Function 3b
+
+**GROOT based on Participant-Level Outcome (i.e., Mean ROOT)**
+
+```{r}
+auc_funct_idv <- function(a = 1, b, dat, idvar = "id", respvar = "prob", tvar = "t", grvar = "group") {
+  
+  auc_nonpar <- function(a = 1, b, dat, arm) {
+    dat$group <- dat[, grvar]
+    
+    indat <- dat[dat$group == arm, ]
+    
+    indat$id <- indat[, idvar]
+    indat$prob <- indat[, respvar]
+    indat$t <- indat[, tvar]
+    
+    # Define lag variable to indicate time-interval
+    intev       <- b - a
+    
+    
+    indat_sum <- indat |> 
+      arrange(id, t) |>
+      group_by(id) |>
+      mutate(tlag = lag(t, default = 0),
+             time_diff = t - tlag,
+             areas_diff = prob*time_diff) |>
+      filter(a <= t & t < b) |> 
+      summarise(area_ind = sum(areas_diff)/intev,
+                n = n(),
+                var_ind = area_ind*(1-area_ind)/(n-1))
+    
+    
+    area        <- mean(indat_sum$area_ind)
+    # Check!!!!
+    var_area    <- sum(indat_sum$var_ind)/nrow(indat_sum)^2
+    
+    return(list(area = area, var = var_area))
+  }
+  
+  multiarm <- function(val){
+    auc_nonpar(arm   = val,
+               a     = a,
+               b     = b,
+               dat   = dat)
+  }
+  
+  arm_name <- as.character(unique(sort(dat$group)))
+  area_mat <- t(sapply(arm_name, multiarm))
+  
+  # Set up result matrix
+  res_mat <- cbind(area_mat, matrix(NA, 2, 6))
+  res_mat[, 3] <- unlist(res_mat[, 1]) - sqrt(unlist(res_mat[, 2]))*qnorm(1 - 0.05/2)
+  res_mat[, 4] <- unlist(res_mat[, 1]) + sqrt(unlist(res_mat[, 2]))*qnorm(1 - 0.05/2)
+  
+  if (length(arm_name) > 1) {
+    for (j in 2:length(arm_name)) {
+      # Difference
+      res_mat[j, 5] <- area_mat[[1, 1]] - area_mat[[j, 1]]
+      # SE difference
+      res_mat[j, 6] <- sqrt(area_mat[[1, 2]] + area_mat[[j, 2]])
+      # z-score
+      res_mat[j, 7] <- res_mat[[j, 5]]/res_mat[[j, 6]]
+      # p-value (1 - pchisq(res_mat[[2, 7]]^2, 1))
+      res_mat[j, 8] <- pnorm(-abs(res_mat[[j, 7]])) * 2
+    }
+  }
+  
+  colnames(res_mat) <- c("area", "var", "lb", "ub", "diff", "se_diff", "z", "pval")
+  
+  return(res_mat)
+}
+```
+:::
+
+### Compare two functions (GROOT and mean ROOT)
+
+```{r}
+# Based on average response
+auc_res <- auc_funct(a = 1, b = 25, dat = df_change)
+auc_res |> knitr::kable()
+```
+
+```{r}
+# Based on individual response
+auc_res2 <- auc_funct_idv(a = 1, b = 25, dat = df_change)
+auc_res2 |> knitr::kable()
+```
+
+The two estimates for area under the curves are identical, however, standard errors are slightly different. I need to check this!
+
+### Comparing power (Work in progress)
+
+## Aim 2: Model-based GROOT {#sec-aim2}
+
+### Introduction
+
+The non-parametric GROOT provide an accurate way to measure area under the response curve. However, it has some disadvantages:
+
+-   Requires balanced longitudinal data (i.e., requires patients having the same number of repeated measurements obtained at a common set of occasions)
+-   Cannot adjust for covariates or selection bias.
+
+To address that problem, we proposed another approach using model with flexible terms on time to model the response curve of patients and calculate the GROOT based on that model.
+
+### Methods & Results
+
+We propose a simple method for model-based GROOT by two main step:
+
+-   Step 1: fit the response curve using Generalized Addictive Model, with smooth terms for time. Obtain the model predicted values for model-based group response curves.
+
+-   Step 2: Calculate area under the model-based group response curves by integration methods (e.g., trapezoidal method or adaptive quadrature)
+
+**Set up data**
+
+```{r}
+df_wide_sim <- sim_dat_wide_nocov(N = 1000, n_measure = 25, diff_ratio = 0.08, arm_name = c("Treatment", "Control"))
+df <- sim_dat_change_long_nocov(cutoff = -0.5, dat = df_wide_sim)
+```
+
+#### Step 1
+
+**Fitting GAM and obtain the model predicted values for responses**
+
+```{r}
+gam_m <- gam(prob ~ group + s(t, k = 15) + s(id, t, bs = "re"),
+             data = df, method = "REML", family = binomial) 
+
+summary(gam_m)
+# gam.check(gam_m)
+```
+
+**Check actual vs prediction values**
+
+The predicted values from GAM are similar to the observed response probability
+
+```{r, fig.width=12, fig.height=6}
+df$pred <- predict(gam_m, type = "response")
+
+df |> group_by(group, t) |>
+  summarise(Observed = mean(prob),
+            Predicted = mean(pred)) |>
+  gather(-c(group, t), key = "type", value = prop) |>
+  ggplot(aes(x = t, y = prop, color = group)) +
+  geom_line(aes(linetype = type), linewidth = 1) +
+  theme_bw()
+```
+
+#### Step 2
+
+**Calculate area under the model-based group response curves by trapezoidal rule**
+
+```{r}
+# Response and variance prediction 
+df$pred <- predict(gam_m, type = "response")
+df$pred_var <- (predict(gam_m, type = "response", se.fit = TRUE)$se.fit)^2
+
+# Define function
+auc_smooth_trap <- function(a, b,  dat, resvar, errvar, tvar = "t") {
+  indat <- dat
+  
+  indat$pred <- indat[, resvar]
+  indat$varfit <- indat[, errvar]
+  indat$t <- indat[, tvar]
+  
+  indat_sum <- indat |> 
+    group_by(t) |>
+    summarise(prob = mean(pred),
+              n = n(),
+              var = (prob*(1-prob))/n + sum(varfit)/(n^2)) |>
+    as.data.frame()
+  
+  intev        <- b - a
+  idx          <- a <= indat_sum$t & indat_sum$t <= b
+  time         <- indat_sum$t[idx]
+  pred         <- indat_sum$prob[idx]
+  var          <- indat_sum$var[idx]
+  # AUC using trapezoidal rule (pracma::trapz(time[ord],pred[ord])/intev)
+  ord          <- order(time)
+  area         <- sum(diff(time[ord])*zoo::rollmean(pred[ord], 2))/intev
+  var_area     <- sum((diff(time[ord])^2)*(zoo::rollsum(var[ord], 2)/4))/intev^2
+  se_area      <- sqrt(var_area)
+  return(list(area = area, se = se_area))
+}
+```
+
+```{r}
+auc_smooth_tr <- auc_smooth_trap(a = 0, b = 24, dat = df |> filter(group == "Treatment"), resvar = "pred", errvar = "pred_var")
+
+auc_smooth_ct <- auc_smooth_trap(a = 0, b = 24, dat = df |> filter(group == "Control"), resvar = "pred", errvar = "pred_var")
+```
+
+Model-based GROOT for treatment group
+
+```{r}
+auc_smooth_tr$area
+```
+
+Model-based GROOT for control group
+
+```{r}
+auc_smooth_ct$area
+```
+
+The estimates are similar to non-parametric GROOT
+
+```{r}
+auc_np <- auc_funct(a = 1, b = 25, dat = df)
+auc_np[, "area"]
+```
+
+## Aim 3: Model-based GROOT with g-methods {#sec-aim3}
+
+### Introduction
+
+In this section, we illustrated the process of applying three well-known methods to estimate causal effects in the context of existing confounders: parametric g-formula, inverse probability weighting, and double-robust estimator. We did a simulation to compare the performance of these methods under different scenarios.
+
+### Methods
+
+The simulation followed the ADEMP framework (**A**ims, **D**ata-generating mechanism, **E**stimands, **M**ethods, **P**erformance measure) proposed by Morris et al., 2019. Such elements are presented below.
+
+-   Aim: To compare the performance of different estimation methods to obtain causal estimates under the presence of confounders with different scenarios.
+
+-   Data-generating mechanism: Four simulation mechanisms were set: small confounding, medium confounding, large confounding, and large confounding with model misspecification. Details are presented in section XXX.
+
+-   Estimands: Group Responses Outcome Over Time (GROOT) estimated by the area under the group response curve. The absolute difference between GROOTs of two treatment arms was also calculated.
+
+-   Methods: The the g-methods were used: Parametric g-formula (PG), Inverse Probability Weighting (IPW), and Double-robust estimator (DRE). The estimates were compared to the unadjusted estimates and the true values.
+
+-   Performance measures: We compared the performance of these methods using bias, which was calculated as absolute bias: $|\text{True GROOT - estimate GROOT}|$.
+
+#### Simulation setup
+
+We first set up three confounding mechanisms (i.e., *"small"*, *"medium"*, and *"large"*) illustrating different situations of *"small"*, *"medium"*, and *"large"* confounding effects in terms of the magnitude of absolute bias for GROOT difference as well as the number of confounders (i.e., one, two, and three, respectively). Figure XXX shows the Directed Acyclic Graphs (DAG) of these three confounding mechanisms. To illustrate a problem that usually happens in real-world situations, which is unobserved confounders, we set U as an unobserved variable in the DAG.
+
+-   In the *"small"* confounding mechanism, there is a backdoor path from $Y_t \leftarrow U \rightarrow X_1 \rightarrow A$. Thus, conditioning on $X_1$ is sufficient to eliminate confounding (@fig-dag1)
+
+-   In the *"medium"* confounding mechanism, two backdoor paths were created: (1) $Y_t \leftarrow U \rightarrow X_1 \rightarrow A$ and (2) $Y_t \leftarrow X_3 \rightarrow A$. Thus, to eliminate confounding, both $X_1$ and $X_3$ need to be controlled (@fig-dag2).
+
+-   In the *"large"* confounding mechanism, three backdoor paths were created: (1) $Y_t \leftarrow U \rightarrow X_1 \rightarrow A$, (2) $Y_t \leftarrow X_3 \rightarrow A$, and (3) $Y_t \leftarrow U \rightarrow X_2 \rightarrow A$. Therefore, a minimum set of $X_1$, $X_2$, and $X_3$ is needed to eliminate confounding (@fig-dag3).
+
+::: {#fig-dag layout-ncol="2"}
+!["Small" confounding](Figures/DAG1.png){#fig-dag1}
+
+!["Medium" confounding](Figures/DAG2.png){#fig-dag2}
+
+!["Large" confounding](Figures/DAG3.png){#fig-dag3}
+
+Directed Acyclic Graphs illustrate three mechanisms of confounding effects for the simulation
+:::
+
+Based on these three confounding scenarios, we set up the simulation with four scenarios that can be classified into two main situations:
+
+-   **Model correctly specified**: for the first three scenarios, we correctly controlled confounders based on each confounding scenario (i.e., scenario 1: $X_1$, scenario 2: $X_1$ and $X_3$, scenario 3: $X_1$, $X_2$, and $X_3$
+
+-   **Model misspecification**: In this scenario, we used the same confounding mechanism as scenario 3, except that we intentionally misspecified the models. In particular, in the model for treatment assignment (i.e., for IPW), we included only intercept instead of $X_1$, $X_2$, and $X_3$. Similarly, for the outcome regression model (i.e., g-formula), the model with only intercept was used. Thus, creating three situations for DRE:
+
+    -   The model for treatment assignment was misspecified but the outcome regression model was correct (DRE-A)
+
+    -   The model for treatment assignment was correct but the outcome regression model was misspecified (DRE-Y).
+
+    -   Both treatmet and outcome models were misspecified (DRE-AY)
+
+#### Data generation
+
+The data for each scenario was generated according to its confounding mechanism. The magnitude of the relationship between variables was reflected by the coefficients. For each scenario, we created datasets with 1000 samples. A loop of 1000 iterations was then performed, and the everage bias over 1000 iterations were obtained. The R code is provided in the [this GitHub repository](https://github.com/khuongquynhlong). The details of each scenario are given in the following sections.
+
+##### Scenario 1: "Small" confounding
+
+```{=tex}
+\begin{align*} \label{eq:Scenario1}  
+&U  \sim N(0, 2) \nonumber\\
+&X_1 \sim \text{Bin}(n, p_{x1}) ;~~~~~~~~~~ \text{with: logit}(p_{x1}) = 0.5^{*} \text{U}\nonumber\\
+&X_2 = 0.5 ^{*} \text{U} + \varepsilon_{x2}; ;~~~~~~~ \text{with: } \varepsilon_{x2} \sim N(0, 0.1)& \nonumber\\
+&X_3  \sim N(0, 2) \nonumber\\
+&A \sim \text{Bin}(n, p_a) ;~~~~~~~~~~~~~~ \text{with: logit}(p_a) = 0.5^{*}X_1 + 0.5^{*} X_3 \nonumber\\
+&Y_t^{(1)} \sim \text{Bin}(n, p_y) ;~~~~~~~~~~ \text{with: logit}(p_{y^{(1)}}) = \text{logit}(f_0(t)) + I_{(\text{A}=1)} + {\color{Red}0.5^{*} \text{U}} \nonumber\\
+&Y_t^{(0)} \sim \text{Bin}(n, p_y) ;~~~~~~~~~~ \text{with: logit}(p_{y^{(0)}}) = \text{logit}(f_0(t)) + I_{(\text{A}=1)} + {\color{Red}0.5^{*} \text{U}} \nonumber\\
+&Y_t =  Y_t^{(1)*}A + Y_t^{(0)*}(1 - A) \nonumber\\ 
+\end{align*}
+```
+Where $f_0(t)$ indicates the baseline response probability at time $t$. We assumed the nature response to pain treatment is as follow:
+
+-   The response probability starts at zero, rises to a peak, and then gradually declines. $t$ is set from 0 to 24 hours, the response ranges from 0 to 1. Therefore Weibull distribution or log-normal distribution may be straightforward to describe the response probability.
+
+-   Here we used Weibull distribution. We assumed the response peak is at hours 3-5 with about maximum of 75% of participants response. The parameters for Weibull distribution are set as:
+
+    -   The scale parameter is set at 15 ($\lambda$ = 15)
+
+    -   Shape parameter is set at 1.3 ($k$ = 1.3)
+
+    -   A scale factor to make sure the prob reachs a peak of 0.75
+
+Therefore $f_0(t) \sim Weibull(\lambda = 15, k = 1.3)$
+
+##### Scenario 2: "Medium" confounding
+
+```{=tex}
+\begin{align*} 
+&U  \sim N(0, 2) \nonumber\\
+&X_1 \sim \text{Bin}(n, p_{x1}) ;~~~~~~~~~~ \text{with: logit}(p_{x1}) = 0.5^{*} \text{U}\nonumber\\
+&X_2 = 0.5 ^{*} \text{U} + \varepsilon_{x2}; ;~~~~~~~ \text{with: } \varepsilon_{x2} \sim N(0, 0.1)& \nonumber\\
+&X_3  \sim N(0, 2) \nonumber\\
+&A \sim \text{Bin}(n, p_a) ;~~~~~~~~~~~~~~ \text{with: logit}(p_a) = 0.5^{*}X_1 + 0.5^{*} X_3 \nonumber\\
+&Y_t^{(1)} \sim \text{Bin}(n, p_y) ;~~~~~~~~~~ \text{with: logit}(p_{y^{(1)}}) = \text{logit}(f_0(t)) + I_{(\text{A}=1)} + {\color{Red}0.5^{*} \text{U} + 0.5^{*} X_3} \nonumber\\
+&Y_t^{(0)} \sim \text{Bin}(n, p_y) ;~~~~~~~~~~ \text{with: logit}(p_{y^{(0)}}) = \text{logit}(f_0(t)) + I_{(\text{A}=1)} + {\color{Red}0.5^{*} \text{U} + 0.5^{*} X_3} \nonumber\\
+&Y_t =  Y_t^{(1)*}A + Y_t^{(0)*}(1 - A) \nonumber\\ 
+\end{align*}
+```
+Where $f_0(t)$ indicates the baseline response probability at time $t$. $f_0(t) \sim Weibull(\lambda = 15, k = 1.3)$
+
+##### Scenario 3: "Large" confounding
+
+```{=tex}
+\begin{align*}
+&U  \sim N(0, 2) \nonumber\\
+&X_1 \sim \text{Bin}(n, p_{x1}) ;~~~~~~~~~~ \text{with: logit}(p_{x1}) = 0.5^{*} \text{U}\nonumber\\
+&X_2 = 0.5 ^{*} \text{U} + \varepsilon_{x2}; ;~~~~~~~ \text{with: } \varepsilon_{x2} \sim N(0, 0.1)& \nonumber\\
+&X_3  \sim N(0, 2) \nonumber\\
+&A \sim \text{Bin}(n, p_a) ;~~~~~~~~~~~~~~ \text{with: logit}(p_a) = 0.5^{*}X_1 + 0.5^{*} X_3 \nonumber\\
+&Y_t^{(1)} \sim \text{Bin}(n, p_y) ;~~~~~~~~~~ \text{with: logit}(p_{y^{(1)}}) = \text{logit}(f_0(t)) + I_{(\text{A}=1)} + {\color{Red}0.5^{*} \text{U} + 0.75^{*} X_3 + 0.75^{*} X_2} \nonumber\\
+&Y_t^{(0)} \sim \text{Bin}(n, p_y) ;~~~~~~~~~~ \text{with: logit}(p_{y^{(0)}}) = \text{logit}(f_0(t)) + I_{(\text{A}=1)} + {\color{Red}0.5^{*} \text{U} + 0.75^{*} X_3 + 0.75^{*} X_2} \nonumber\\
+&Y_t =  Y_t^{(1)*}A + Y_t^{(0)*}(1 - A) \nonumber\\ 
+\end{align*}
+```
+Where $f_0(t)$ indicates the baseline response probability at time $t$. $f_0(t) \sim Weibull(\lambda = 15, k = 1.3)$
+
+##### Scenario 4: "Large" confounding with model misspecification
+
+In this scenario, we used the same mechanism of scenario 3 except that we intentionally misspecified the models
+
+#### Define all functions
+
+::: panel-tabset
+##### Function 1
+
+**Function for** $f_0(t)$
+
+```{r}
+gen_WB_curve <- function(t = 24, peak = 0.75, lambda = 15, k = 1.3) {
+  x <- seq(0, t)
+  # Weibull PDF
+  weibull_pdf <- dweibull(x, shape = k, scale = lambda)
+  
+  # Scale the y-axis to have a peak around 0.75
+  scaling_factor <- peak / max(weibull_pdf)
+  weibull_pdf_scaled <- weibull_pdf * scaling_factor
+  
+  df_WB <- data.frame(t = x, response = weibull_pdf_scaled)
+  return(df_WB)
+}
+```
+
+##### Function 2
+
+**Simulate data for 3 scenarios**
+
+```{r}
+genData <- function(n, scen, t = 24, peak = 0.75, lambda = 15, k = 1.3) {
+  
+  # Generate natural response curve
+  df_WB <- gen_WB_curve(t = t, peak = peak, lambda = lambda, k = k)
+  u    <- rnorm(n, 0, 2)
+  x1   <- rbinom(n, size = 1, prob = plogis(0.5*u))
+  x2   <- 0.5*u + rnorm(n, 0, 0.1)
+  x3   <- rnorm(n, 0, 2)
+  
+  # Set up treatment A and outcome Y under different scenarios
+  df_mat <- matrix(NA, n, (t+1)*3 + 4)
+  
+  df_mat[, (t+1)*3 + 2] <- x1
+  df_mat[, (t+1)*3 + 3] <- x2
+  df_mat[, (t+1)*3 + 4] <- x3
+  
+  if (scen == "small") {
+    A    <- rbinom(n, size=1, prob = plogis(0.5*x1 + 0.5*x3))
+    
+    df_mat[, (t+1)*3 + 1] <- A
+    
+    for (i in 2:(t+1)) {
+      # counterfactual outcome for A = 1
+      yt1 <- rbinom(n, size=1, prob = plogis(qlogis(df_WB$response[i]) + 1 + 0.5*u))
+      
+      # counterfactual outcome for A = 0
+      yt0 <- rbinom(n, size=1, prob = plogis(qlogis(df_WB$response[i]) + 0 + 0.5*u))
+      
+      # Observed outcome
+      yt <- yt1*A + yt0*(1 - A)
+      
+      df_mat[, 3*(i-2) + 4] <- yt1
+      df_mat[, 3*(i-2) + 5] <- yt0
+      df_mat[, 3*(i-2) + 6] <- yt
+      
+    }
+    df_mat[, 1] <- rep(0, n)
+    df_mat[, 2] <- rep(0, n)
+    df_mat[, 3] <- rep(0, n)
+  } else if (scen == "medium") {
+    A    <- rbinom(n, size=1, prob = plogis(0.5*x1 + 0.5*x3))
+    
+    df_mat[, (t+1)*3 + 1] <- A
+    
+    for (i in 2:(t+1)) {
+      # counterfactual outcome for A = 1
+      yt1 <- rbinom(n, size=1, prob = plogis(qlogis(df_WB$response[i]) + 1 + 0.5*u + 0.5*x3))
+      
+      # counterfactual outcome for A = 0
+      yt0 <- rbinom(n, size=1, prob = plogis(qlogis(df_WB$response[i]) + 0 + 0.5*u + 0.5*x3))
+      
+      # Observed outcome
+      yt <- yt1*A + yt0*(1 - A)
+      
+      df_mat[, 3*(i-2) + 4] <- yt1
+      df_mat[, 3*(i-2) + 5] <- yt0
+      df_mat[, 3*(i-2) + 6] <- yt
+      
+    }
+    df_mat[, 1] <- rep(0, n)
+    df_mat[, 2] <- rep(0, n)
+    df_mat[, 3] <- rep(0, n)
+
+  } else {
+    A    <- rbinom(n, size=1, prob = plogis(0.5*x1 + 0.5*x3 + 0.5*x2))
+    
+    df_mat[, (t+1)*3 + 1] <- A
+    
+    for (i in 2:(t+1)) {
+      # counterfactual outcome for A = 1
+      yt1 <- rbinom(n, size=1, prob = plogis(qlogis(df_WB$response[i]) + 1 + 0.5*u + 0.75*x3 + 0.75*x2))
+      
+      # counterfactual outcome for A = 0
+      yt0 <- rbinom(n, size=1, prob = plogis(qlogis(df_WB$response[i]) + 0 + 0.5*u + 0.75*x3 + 0.75*x2))
+      
+      # Observed outcome
+      yt <- yt1*A + yt0*(1 - A)
+      
+      df_mat[, 3*(i-2) + 4] <- yt1
+      df_mat[, 3*(i-2) + 5] <- yt0
+      df_mat[, 3*(i-2) + 6] <- yt
+      
+    }
+    df_mat[, 1] <- rep(0, n)
+    df_mat[, 2] <- rep(0, n)
+    df_mat[, 3] <- rep(0, n)
+  }
+  
+  # Return data.frame
+  colnames(df_mat) <- c("Y1_0", "Y0_0", "Y_0",
+                        paste0(c("Y1_", "Y0_", "Y_"), rep(1:t, each = 3)),
+                        "A", "x1", "x2", "x3")
+  df_mat <- as.data.frame(df_mat)
+  df_mat$id <- 1:n
+
+  # Data for counterfactual outcome of A = 1
+  df_Y1 <- df_mat |> select(id, starts_with("Y1_")) |>
+    gather(-c(id), key = "t", value = "Y1") |>
+    mutate(t = as.numeric(str_remove_all(t, "Y1_"))) |> 
+    arrange(id, t)
+  
+  # Data for counterfactual outcome of A = 0
+  df_Y0 <- df_mat |> select(id, starts_with("Y0_")) |>
+    gather(-c(id), key = "t", value = "Y0") |>
+    mutate(t = as.numeric(str_remove_all(t, "Y0_"))) |> 
+    arrange(id, t)
+  
+  # Data for observed outcome of 
+  df_Y <- df_mat |> select(id, A, x1, x2, x3, starts_with("Y_")) |>
+    gather(-c(id, A, x1, x2, x3), key = "t", value = "Y") |>
+    mutate(t = as.numeric(str_remove_all(t, "Y_"))) |>
+    arrange(id, t)
+  
+  df_all <- df_Y |> 
+    left_join(df_Y1, by = c("id", "t")) |>
+    left_join(df_Y0, by = c("id", "t"))
+  
+ return(df_all)
+}
+```
+
+##### Function 3
+
+**Plot simulated data**
+
+```{r}
+plot_genData <- function(n = 1000, scen, t = 24, peak = 0.7, lambda = 15, k = 1.3) {
+  indat <- genData(n = 1000, scen = scen, t = 24, peak = 0.7, lambda = 15, k = 1.3)
+  
+  f1_ob <- indat |>
+    group_by(t, A) |>
+    summarise(prob = mean(Y)) |>
+    ggplot(aes(x = as.factor(t), y = prob, color = as.factor(A), group = as.factor(A))) + 
+    geom_line(linewidth = 1) +
+    scale_y_continuous(limits = c(0, 1)) +
+    scale_color_brewer(palette = "Set1") +
+    labs(x = "Time", y = "Response (%)", color = "Group",
+         title = "Observed reponse curves (biased)") +
+    theme_bw()
+  
+  A1_sum <- indat |>
+    group_by(t) |>
+    summarise(prob = mean(Y1), group = "1")
+  
+  A0_sum <- indat |>
+    group_by(t) |>
+    summarise(prob = mean(Y0), group = "0")
+  
+  f1_cft <- rbind(A1_sum, A0_sum) |>
+    ggplot(aes(x = as.factor(t), y = prob, color = group, group = group)) + 
+    geom_line(linewidth = 1) +
+    scale_y_continuous(limits = c(0, 1)) +
+    scale_color_brewer(palette = "Set1") +
+    labs(x = "Time", y = "Response (%)", color = "Group",
+         title = "Counterfactual reponse curves (true)") +
+    theme_bw()
+  return(cowplot::plot_grid(f1_cft, f1_ob, labels = "AUTO", ncol = 2))
+}
+
+```
+
+```{r, fig.width=12, fig.height=6}
+#| label: fig-simdat_small
+#| fig-cap: "Small confounding: True and biased estimates"
+set.seed(12345)
+plot_genData(n = 1000, scen = "small")
+```
+
+```{r, fig.width=12, fig.height=6}
+#| label: fig-simdat_medium
+#| fig-cap: "Medium confounding: True and biased estimates"
+set.seed(12345)
+plot_genData(n = 1000, scen = "medium")
+```
+
+```{r, fig.width=12, fig.height=6}
+#| label: fig-simdat_large
+#| fig-cap: "Large confounding: True and biased estimates"
+set.seed(12345)
+plot_genData(n = 1000, scen = "large")
+```
+
+##### Function 4
+
+**Simplify the function to calculate area under the curve only (no SE)**
+
+```{r}
+auc_smooth_trap_area <- function(a, b, dat, resvar, tvar = "t") {
+  indat <- dat
+  
+  indat$pred <- indat[, resvar]
+  indat$t <- indat[, tvar]
+  
+  indat_sum <- indat |> 
+    group_by(t) |>
+    summarise(prob = mean(pred)) |>
+    as.data.frame()
+  
+  intev        <- b - a
+  idx          <- a <= indat_sum$t & indat_sum$t <= b
+  time         <- indat_sum$t[idx]
+  pred         <- indat_sum$prob[idx]
+  # AUC using trapezoidal rule (pracma::trapz(time[ord],pred[ord])/intev)
+  ord          <- order(time)
+  area         <- sum(diff(time[ord])*zoo::rollmean(pred[ord], 2))/intev
+  return(area)
+}
+```
+
+##### Function 5
+
+**Do simulation to compare performance of different methods**
+
+```{r}
+doSimulation <- function(n = 1000, scen, t = 24, peak = 0.7, lambda = 15, k = 1.3, 
+                         a = 0, b = 24, boot = NULL, conf_lv = 0.95, seed = NULL) { 
+  if(!is.null(seed)) {
+    set.seed(seed)
+  }
+  
+  if (scen == "small") {
+    dat         <- genData(n = n, scen = "small", t = t, peak = peak, lambda = lambda, k = k)
+    formula1    <- Y ~  x1 + s(t)
+    formula2    <- A ~  x1 + x3
+    formula3    <- Y ~  x1 + bs(t, df = 5) # For svyglm() as mgcv cannot use ipw
+  } else if (scen == "medium") {
+    dat         <- genData(n = n, scen = "medium", t = t, peak = peak, lambda = lambda, k = k)
+    formula1    <- Y ~  x1 + x3 + s(t)
+    formula2    <- A ~  x1 + x3
+    formula3    <- Y ~  x1 + x3 + bs(t, df = 5) # For svyglm() as mgcv cannot use ipw
+  } else {
+    dat         <- genData(n = n, scen = "large", t = t, peak = peak, lambda = lambda, k = k)
+    formula1    <- Y ~  x1 + x2 + x3 + s(t)
+    formula2    <- A ~  x1 + x2 + x3
+    formula3    <- Y ~  x1 + x2 + x3 + bs(t, df = 5) # For svyglm() as mgcv cannot use ipw
+  }
+  
+  trueAUC_Y1    <- auc_smooth_trap_area(a = a, b = b, dat = dat, resvar = "Y1")
+  trueAUC_Y0    <- auc_smooth_trap_area(a = a, b = b, dat = dat, resvar = "Y0")
+  trueAUC_diff  <- trueAUC_Y1 - trueAUC_Y0
+  
+  biasAUC_Y1    <- auc_smooth_trap_area(a = a, b = b, dat = dat[dat$A==1,], resvar = "Y")
+  biasAUC_Y0    <- auc_smooth_trap_area(a = a, b = b, dat = dat[dat$A==0,], resvar = "Y")
+  biasAUC_diff  <- biasAUC_Y1 - biasAUC_Y0
+  
+  
+  #----- Parametric G-formula
+  par_gform <- function(dat, ...) {
+    indat       <- dat
+    gam1        <- gam(formula1, data = indat[indat$A==1,], method = "REML", family = binomial) 
+    gam0        <- gam(formula1, data = indat[indat$A==0,], method = "REML", family = binomial)
+    indat$pred1 <- predict(gam1, type = "response", newdata = indat |> mutate(A = 1))
+    indat$pred0 <- predict(gam0, type = "response", newdata = indat |> mutate(A = 0))
+    adj_AUC1    <- auc_smooth_trap_area(a = a, b = b, dat = indat, resvar = "pred1")
+    adj_AUC0    <- auc_smooth_trap_area(a = a, b = b, dat = indat, resvar = "pred0")
+    AUC_diff    <- adj_AUC1 - adj_AUC0
+    return(list(adj_AUC1 = adj_AUC1, adj_AUC0 = adj_AUC0, AUC_diff = AUC_diff))
+  }
+  par_gform_auc <- par_gform(dat = dat)
+  
+  
+  #----- IPW
+  iptw <- function(dat, ...) {
+    indat       <- dat
+    ps_mod      <- glm(formula2, data=indat, family="binomial")
+    pscore      <- ifelse(indat$A==0, 1-predict(ps_mod, type = "response"), predict(ps_mod, type = "response"))
+    indat$w     <- 1/pscore
+    glm_w       <- svyglm(Y ~ A + bs(t, df = 5), family = "quasibinomial", 
+        design = svydesign(~ 1, weights = ~ indat$w, data = indat))
+    indat$pred  <- predict(glm_w, newdata = indat, type = "response")
+    adj_AUC1    <- auc_smooth_trap_area(a = a, b = b, dat = indat[indat$A==1,], resvar = "pred")
+    adj_AUC0    <- auc_smooth_trap_area(a = a, b = b, dat = indat[indat$A==0,], resvar = "pred")
+    AUC_diff    <- adj_AUC1 - adj_AUC0
+    return(list(adj_AUC1 = adj_AUC1, adj_AUC0 = adj_AUC0, AUC_diff = AUC_diff))
+  }
+  
+  iptw_auc <- iptw(dat = dat)
+  
+  #----- Double-robust methods
+  DB_both <- function(dat,...) {
+    indat       <- dat
+    ps_mod      <- glm(formula2, data=indat, family="binomial")
+    pscore      <- ifelse(indat$A==0, 1-predict(ps_mod, type = "response"), predict(ps_mod, type = "response"))
+    indat$w     <- 1/pscore
+    glm1        <- svyglm(formula3, family = "quasibinomial", 
+                          design = svydesign(~ 1, weights = ~ indat$w[indat$A==1], data = indat[indat$A==1,]))
+    glm0        <- svyglm(formula3, family = "quasibinomial", 
+                          design = svydesign(~ 1, weights = ~ indat$w[indat$A==0], data = indat[indat$A==0,]))
+    indat$pred1 <- predict(glm1, type = "response", newdata = indat |> mutate(A = 1))
+    indat$pred0 <- predict(glm0, type = "response", newdata = indat |> mutate(A = 0))
+    adj_AUC1    <- auc_smooth_trap_area(a = a, b = b, dat = indat, resvar = "pred1")
+    adj_AUC0    <- auc_smooth_trap_area(a = a, b = b, dat = indat, resvar = "pred0")
+    AUC_diff    <- adj_AUC1 - adj_AUC0
+    return(list(adj_AUC1 = adj_AUC1, adj_AUC0 = adj_AUC0, AUC_diff = AUC_diff))
+  }
+  
+  DB_auc <- DB_both(dat = dat)
+  
+  
+  #----- Double-robust methods: Misclassification of treatment model
+  DB_A <- function(dat,...) {
+    indat       <- dat
+    ps_mod      <- glm(A ~ 1, data=indat, family="binomial")
+    pscore      <- ifelse(indat$A==0, 1-predict(ps_mod, type = "response"), predict(ps_mod, type = "response"))
+    indat$w     <- 1/pscore
+    glm1        <- svyglm(formula3, family = "quasibinomial", 
+                          design = svydesign(~ 1, weights = ~ indat$w[indat$A==1], data = indat[indat$A==1,]))
+    glm0        <- svyglm(formula3, family = "quasibinomial", 
+                          design = svydesign(~ 1, weights = ~ indat$w[indat$A==0], data = indat[indat$A==0,]))
+    indat$pred1 <- predict(glm1, type = "response", newdata = indat |> mutate(A = 1))
+    indat$pred0 <- predict(glm0, type = "response", newdata = indat |> mutate(A = 0))
+    adj_AUC1    <- auc_smooth_trap_area(a = a, b = b, dat = indat, resvar = "pred1")
+    adj_AUC0    <- auc_smooth_trap_area(a = a, b = b, dat = indat, resvar = "pred0")
+    AUC_diff    <- adj_AUC1 - adj_AUC0
+    return(list(adj_AUC1 = adj_AUC1, adj_AUC0 = adj_AUC0, AUC_diff = AUC_diff))
+  }
+  
+  DB_A_auc <- DB_A(dat = dat)
+  
+  #----- Double-robust methods: Misclassification of outcome model
+  DB_Y <- function(dat,...) {
+    indat       <- dat
+    ps_mod      <- glm(formula2, data=indat, family="binomial")
+    pscore      <- ifelse(indat$A==0, 1-predict(ps_mod, type = "response"), predict(ps_mod, type = "response"))
+    indat$w     <- 1/pscore
+    glm1        <- svyglm(Y ~ bs(t, df = 5), family = "quasibinomial", 
+                          design = svydesign(~ 1, weights = ~ indat$w[indat$A==1], data = indat[indat$A==1,]))
+    glm0        <- svyglm(Y ~ bs(t, df = 5), family = "quasibinomial", 
+                          design = svydesign(~ 1, weights = ~ indat$w[indat$A==0], data = indat[indat$A==0,]))
+    indat$pred1 <- predict(glm1, type = "response", newdata = indat |> mutate(A = 1))
+    indat$pred0 <- predict(glm0, type = "response", newdata = indat |> mutate(A = 0))
+    adj_AUC1    <- auc_smooth_trap_area(a = a, b = b, dat = indat, resvar = "pred1")
+    adj_AUC0    <- auc_smooth_trap_area(a = a, b = b, dat = indat, resvar = "pred0")
+    AUC_diff    <- adj_AUC1 - adj_AUC0
+    return(list(adj_AUC1 = adj_AUC1, adj_AUC0 = adj_AUC0, AUC_diff = AUC_diff))
+  }
+  
+  DB_Y_auc <- DB_Y(dat = dat)
+  
+  #----- Double-robust methods: Misclassification of both treatment and outcome models
+  DB_AY <- function(dat,...) {
+    indat       <- dat
+    ps_mod      <- glm(A ~ 1, data=indat, family="binomial")
+    pscore      <- ifelse(indat$A==0, 1-predict(ps_mod, type = "response"), predict(ps_mod, type = "response"))
+    indat$w     <- 1/pscore
+    glm1        <- svyglm(Y ~ bs(t, df = 5), family = "quasibinomial", 
+                          design = svydesign(~ 1, weights = ~ indat$w[indat$A==1], data = indat[indat$A==1,]))
+    glm0        <- svyglm(Y ~ bs(t, df = 5), family = "quasibinomial", 
+                          design = svydesign(~ 1, weights = ~ indat$w[indat$A==0], data = indat[indat$A==0,]))
+    indat$pred1 <- predict(glm1, type = "response", newdata = indat |> mutate(A = 1))
+    indat$pred0 <- predict(glm0, type = "response", newdata = indat |> mutate(A = 0))
+    adj_AUC1    <- auc_smooth_trap_area(a = a, b = b, dat = indat, resvar = "pred1")
+    adj_AUC0    <- auc_smooth_trap_area(a = a, b = b, dat = indat, resvar = "pred0")
+    AUC_diff    <- adj_AUC1 - adj_AUC0
+    return(list(adj_AUC1 = adj_AUC1, adj_AUC0 = adj_AUC0, AUC_diff = AUC_diff))
+  }
+  
+  DB_AY_auc <- DB_AY(dat = dat)
+  
+  
+  df_est <- data.frame(
+    method = c("Gform", "IPW", "DB", "DB_A", "DB_Y", "DB_AY"),
+    trueAUC_Y1 = trueAUC_Y1,
+    trueAUC_Y0 = trueAUC_Y0,
+    biasAUC_Y1 = biasAUC_Y1,
+    biasAUC_Y0 = biasAUC_Y0,
+    adj_AUC1 = c(par_gform_auc$adj_AUC1, iptw_auc$adj_AUC1, DB_auc$adj_AUC1, DB_A_auc$adj_AUC1, DB_Y_auc$adj_AUC1, DB_AY_auc$adj_AUC1),
+    adj_AUC0 = c(par_gform_auc$adj_AUC0, iptw_auc$adj_AUC0, DB_auc$adj_AUC0, DB_A_auc$adj_AUC0, DB_Y_auc$adj_AUC0, DB_AY_auc$adj_AUC0),
+    true_AUC_diff = trueAUC_diff,
+    bias_AUC_diff = biasAUC_diff,
+    adj_AUC_diff = c(par_gform_auc$AUC_diff, iptw_auc$AUC_diff, DB_auc$AUC_diff, DB_A_auc$AUC_diff, DB_Y_auc$AUC_diff, DB_AY_auc$AUC_diff))
+  
+  if (!is.null(boot)) {
+      
+      #----- Bootstrap
+      #=========================================================================
+      df_result_b <- NULL
+      
+    
+      #--- Bootstrap data
+      for (i in 1:boot) {
+        idx      <- sample(1:n, n, replace = T)
+        freq_id  <- table(idx)
+        df_boot  <- NULL
+        
+        for(j in 1:max(freq_id)) {
+          # Loop over repeated id
+          temp_df <- dat[dat$id %in% names(freq_id[freq_id %in% c(j:max(freq_id))]), ]
+          temp_df$boot_id <- paste0(temp_df$id, "_", j)
+          df_boot <- rbind(df_boot, temp_df)
+        }
+        
+        trueAUC_Y1_b    <- auc_smooth_trap_area(a = a, b = b, dat = df_boot, resvar = "Y1")
+        trueAUC_Y0_b    <- auc_smooth_trap_area(a = a, b = b, dat = df_boot, resvar = "Y0")
+        trueAUC_diff_b  <- trueAUC_Y1_b - trueAUC_Y0_b
+        
+        biasAUC_Y1_b    <- auc_smooth_trap_area(a = a, b = b, dat = df_boot[df_boot$A==1,], resvar = "Y")
+        biasAUC_Y0_b    <- auc_smooth_trap_area(a = a, b = b, dat = df_boot[df_boot$A==0,], resvar = "Y")
+        biasAUC_diff_b  <- biasAUC_Y1_b - biasAUC_Y0_b
+        
+        
+        #--- Bootstrap estimates
+        
+        # parametric G-formula
+        par_gform_b <- par_gform(dat = df_boot)
+        
+        # IPW
+        iptw_b <- iptw(dat = df_boot)
+        
+        # DB both
+        DB_b <- DB_both(dat = df_boot)
+        
+        # Double-robust methods: Misclassification of treatment model 
+        DB_A_b <- DB_A(dat = df_boot)
+        
+        # Double-robust methods: Misclassification of outcome model
+        DB_Y_b <- DB_Y(dat = df_boot)
+        
+        # Double-robust methods: Misclassification of both treatment and outcome models
+        DB_AY_b <- DB_AY(dat = df_boot)
+        
+        df_b <- data.frame(
+          method = c("Gform", "IPW", "DB", "DB_A", "DB_Y", "DB_AY"),
+          trueAUC_Y1 = trueAUC_Y1_b,
+          trueAUC_Y0 = trueAUC_Y0_b,
+          biasAUC_Y1 = biasAUC_Y1_b,
+          biasAUC_Y0 = biasAUC_Y0_b,
+          adj_AUC1 = c(par_gform_b$adj_AUC1, iptw_b$adj_AUC1, DB_b$adj_AUC1, DB_A_b$adj_AUC1, DB_Y_b$adj_AUC1, DB_AY_b$adj_AUC1),
+          adj_AUC0 = c(par_gform_b$adj_AUC0, iptw_b$adj_AUC0, DB_b$adj_AUC0, DB_A_b$adj_AUC0, DB_Y_b$adj_AUC0, DB_AY_b$adj_AUC0),
+          true_AUC_diff = trueAUC_diff_b,
+          bias_AUC_diff = biasAUC_diff_b,
+          adj_AUC_diff = c(par_gform_b$AUC_diff, iptw_b$AUC_diff, DB_b$AUC_diff, DB_A_b$AUC_diff, DB_Y_b$AUC_diff, DB_AY_b$AUC_diff),
+          iteration = i)
+        
+        df_result_b <- rbind(df_result_b, df_b)
+      }
+      
+      # Summary data for bootstrap
+      df_est <- df_result_b |> 
+        group_by(method) |>
+        summarise(trueAUC_Y1_lb     = quantile(trueAUC_Y1, probs = (1 - conf_lv)/2),
+                  trueAUC_Y1_ub     = quantile(trueAUC_Y1, probs = (1 + conf_lv)/2),
+                  trueAUC_Y0_lb     = quantile(trueAUC_Y0, probs = (1 - conf_lv)/2),
+                  trueAUC_Y0_ub     = quantile(trueAUC_Y0, probs = (1 + conf_lv)/2),
+                  biasAUC_Y1_lb     = quantile(biasAUC_Y1, probs = (1 - conf_lv)/2),
+                  biasAUC_Y1_ub     = quantile(biasAUC_Y1, probs = (1 + conf_lv)/2),
+                  biasAUC_Y0_lb     = quantile(biasAUC_Y0, probs = (1 - conf_lv)/2),
+                  biasAUC_Y0_ub     = quantile(biasAUC_Y0, probs = (1 + conf_lv)/2),
+                  adj_AUC1_lb       = quantile(adj_AUC1, probs = (1 - conf_lv)/2),
+                  adj_AUC1_ub       = quantile(adj_AUC1, probs = (1 + conf_lv)/2),
+                  adj_AUC0_lb       = quantile(adj_AUC0, probs = (1 - conf_lv)/2),
+                  adj_AUC0_ub       = quantile(adj_AUC0, probs = (1 + conf_lv)/2),
+                  true_AUC_diff_lb  = quantile(true_AUC_diff, probs = (1 - conf_lv)/2),
+                  true_AUC_diff_ub  = quantile(true_AUC_diff, probs = (1 + conf_lv)/2),
+                  bias_AUC_diff_lb  = quantile(bias_AUC_diff, probs = (1 - conf_lv)/2),
+                  bias_AUC_diff_ub  = quantile(bias_AUC_diff, probs = (1 + conf_lv)/2),
+                  adj_AUC_diff_lb   = quantile(adj_AUC_diff, probs = (1 - conf_lv)/2),
+                  adj_AUC_diff_ub   = quantile(adj_AUC_diff, probs = (1 + conf_lv)/2))|> 
+        ungroup() |>
+        right_join(df_est, by = "method") |>
+        datawizard::data_rotate(colnames = TRUE, rownames = "param")
+  }
+  
+  return(df_est)
+
+}
+```
+:::
+
+### Results
+
+**Run the 1000 iteration to calculate average bias**
+
+The table below display the comparison between perfomance between different methods to control for confounders, as well as comparing to undajusted estimates.
+
+-   The `TRUE` GROOT for treatment group ($GROOT^{(1)}$), control group ($GROOT^{(0)}$), and GROOT difference ($GD_{true}$) were:
+
+    -   Small confounding scenario: $GROOT^{(1)} = 0.674$, $GROOT^{(0)} = 0.493$, $GD_{true} = 0.182$
+
+    -   Medium confounding scenario: $GROOT^{(1)} = 0.656$, $GROOT^{(0)} = 0.492$, $GD_{true} = 0.164$
+
+    -   Large confounding scenario: $GROOT^{(1)} = 0.632$, $GROOT^{(0)} = 0.503$, $GD_{true} = 0.129$
+
+-   The `unadjusted GROOT` for treatment group $(GROOT_{unadj} | A = 1)$, control group $(GROOT_{unadj} | A = 0)$, and GROOT difference ($GD_{unadj}$) were slightlty different from the true values in the small congfounding, but increases substaintially in the medium and large confounding scenarios. To be specific 
+
+    -   Small confounding scenario: $(GROOT_{unadj} | A = 1) = 0.681$, $(GROOT_{unadj} | A = 0) = 0.483$, $GD_{unadj} = 0.198$
+
+    -   Medium confounding scenario: $(GROOT_{unadj} | A = 1) = 0.720$, $(GROOT_{unadj} | A = 0) = 0.406$, $GD_{unadj} = 0.314$
+
+    -   Large confounding scenario: $(GROOT_{unadj} | A = 1) = 0.751$, $(GROOT_{unadj} | A = 0) = 0.341$, $GD_{unadj} = 0.410$
+
+<!-- - The `adjusted GROOT` for treatment group $(GROOT_{ad} | A = 1)$, control group $(GROOT_{ad} | A = 0)$, and GROOT difference ($GD_{ad}$) were: -->
+
+<!--   - Small confounding scenario: $(GROOT_{ad} | A = 1) = $, $(GROOT_{ad} | A = 0) = $, $GD_{ad} = $ -->
+
+<!--   - Medium confounding scenario: $(GROOT_{ad} | A = 1) = $, $(GROOT_{ad} | A = 0) = $, $GD_{ad} = $ -->
+
+<!--   - Large confounding scenario: $(GROOT_{ad} | A = 1) = $, $(GROOT_{ad} | A = 0) = $, $GD_{ad} = $ -->
+
+-   The `absolute biases`, which were measured by the absolute difference between the estimated values and the true values, were high for unadjusted estimate, with the absolute bias ranges from 0.016 in the small confounding scenario, to 0.150 in the medium confounding, and 0.280 in the large confounding scenario. However, the biases were small in adjusted estimates, with the biases range from 0.000 to 0.013 varying for different adjustment methods in all scenarios. The small variations between different methods might be conftributed to the model fit using different smooth parameters. In the scenario 4 (i.e., large confounding with model misspecification), if one of two models (treatment and outcome models) were misspecified, the adjusted estimated (i.e., DB-A and DB-Y) remained unbiased. However, if both models were misspecified, the estimate was bias (DB-AY).
+
+
+
+```{r}
+ave_bias_tab <- NULL
+
+for (k in c("small", "medium", "large")) {
+  for (i in 1:100) {
+    df_out          <- doSimulation(n = 1000, scen = k, seed = i)
+    df_out$scenario <- k
+    df_out$iter     <- i
+    ave_bias_tab    <- rbind(ave_bias_tab, df_out)
+  }
+}
+
+ave_bias_tab_sum <- ave_bias_tab |> 
+  group_by(scenario, method) %>%
+  summarise(trueAUC_Y1 = mean(trueAUC_Y1),
+            trueAUC_Y0 = mean(trueAUC_Y0),
+            biasAUC_Y1 = mean(biasAUC_Y1),
+            biasAUC_Y0  = mean(biasAUC_Y0),
+            adj_AUC1  = mean(adj_AUC1),
+            adj_AUC0 = mean(adj_AUC0),
+            true_AUC_diff = mean(true_AUC_diff),
+            bias_AUC_diff = mean(bias_AUC_diff),
+            adj_AUC_diff = mean(adj_AUC_diff),
+            bias_true_unadj = mean(abs(true_AUC_diff - bias_AUC_diff)),
+            bias_true_adj = mean(abs(true_AUC_diff - adj_AUC_diff)))
+
+ave_bias_tab_sum |> knitr::kable()
+```

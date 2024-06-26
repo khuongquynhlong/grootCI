@@ -1,0 +1,80 @@
+.quarto-title-block .quarto-title-banner {
+  /*background-image: url(images/UniversityofPennsylvania_FullLogo_Reverse_RGB.png);*/
+  background-size: 230px;
+  background-position: left;
+  background-repeat: no-repeat;
+  padding-left: 10px;
+  padding-top: 0px;
+  background-origin: content-box;
+}
+
+h1.title {
+    font-size: 38px;
+    color: #ffffff;
+    font-family: perpetua;
+    padding: 0px; 
+}
+
+p.subtitle {
+    margin-top: 0.25em;
+    margin-bottom: 0.5em; 
+    color: #ffffff;
+    font-family: perpetua;
+}
+
+#title-block-header.quarto-title-block.default .quarto-title-meta-heading {
+    text-transform: uppercase;
+    margin-top: 1em;
+    font-size: .8em;
+    opacity: .8;
+    font-weight: 400;
+    font-family: ITC tone serif;
+}
+
+.quarto-title-banner {
+    padding-bottom: 0.5em;
+}
+
+/*
+.page-columns.toc-left .page-columns {
+    justify-items: center;
+}
+*/
+
+p code:not(.sourceCode), li code:not(.sourceCode), td code:not(.sourceCode) {
+    background-color: #f6f6f6;
+    padding: 0.2em;
+    color: #e7298a;
+}
+
+
+details>summary {
+    color: #e7298a;
+    font-weight: 600;
+}
+
+.nav-tabs .nav-link {
+    color: #222;
+    font-weight: 600;
+}
+
+.nav-tabs .nav-link {
+    margin-bottom: -1px;
+    background: none;
+    border: 1px solid rgba(0,0,0,0);
+    border-top-left-radius: 0.25rem;
+    border-top-right-radius: 0.25rem;
+}
+
+.nav-tabs .nav-link, .nav-tabs .nav-link.disabled, .nav-tabs .nav-link.disabled:hover, .nav-tabs .nav-link.disabled:focus {
+    margin-top: 6px;
+    border-color: black;
+    transition: padding-bottom .2s ease-in-out,margin-top .2s ease-in-out,border-bottom .2s ease-in-out;
+}
+
+
+.nav-tabs .nav-link.active, .nav-tabs .nav-item.show .nav-link {
+    color: white;
+    background-color: #158cba;
+    border-color: #f0f0f0;
+}
