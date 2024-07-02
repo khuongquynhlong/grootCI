@@ -214,9 +214,9 @@ plot_genData <- function(n = 1000, scen, t = 24, peak = 0.7, lambda = 15, k = 1.
     scale_y_continuous(limits = c(0, 1)) +
     scale_color_brewer(palette = "Set1") +
     labs(x = "Time", y = "Response (%)", color = "Group",
-         title = "Counterfactual reponse curves (unbiased)") +
+         title = "Counterfactual reponse curves (true)") +
     theme_bw()
-  return(cowplot::plot_grid(f1_ob, f1_cft, labels = "AUTO", ncol = 2))
+  return(cowplot::plot_grid(f1_cft, f1_ob, labels = "AUTO", ncol = 2))
 }
 
 
@@ -311,7 +311,7 @@ doSimulation <- function(n = 1000, scen, t = 24, peak = 0.7, lambda = 15, k = 1.
     formula2    <- A ~  x1 + x3
     formula3    <- Y ~  x1 + x3 + bs(t, df = 5) # For svyglm() as mgcv cannot use ipw
   } else {
-    dat         <- genData(n = n, scen = "medium", t = t, peak = peak, lambda = lambda, k = k)
+    dat         <- genData(n = n, scen = "large", t = t, peak = peak, lambda = lambda, k = k)
     formula1    <- Y ~  x1 + x2 + x3 + s(t)
     formula2    <- A ~  x1 + x2 + x3
     formula3    <- Y ~  x1 + x2 + x3 + bs(t, df = 5) # For svyglm() as mgcv cannot use ipw
@@ -348,7 +348,7 @@ doSimulation <- function(n = 1000, scen, t = 24, peak = 0.7, lambda = 15, k = 1.
     pscore      <- ifelse(indat$A==0, 1-predict(ps_mod, type = "response"), predict(ps_mod, type = "response"))
     indat$w     <- 1/pscore
     glm_w       <- svyglm(Y ~ A + bs(t, df = 5), family = "quasibinomial", 
-                                  design = svydesign(~ 1, weights = ~ indat$w, data = indat))
+                          design = svydesign(~ 1, weights = ~ indat$w, data = indat))
     indat$pred  <- predict(glm_w, newdata = indat, type = "response")
     adj_AUC1    <- auc_smooth_trap_area(a = a, b = b, dat = indat[indat$A==1,], resvar = "pred")
     adj_AUC0    <- auc_smooth_trap_area(a = a, b = b, dat = indat[indat$A==0,], resvar = "pred")
@@ -453,98 +453,98 @@ doSimulation <- function(n = 1000, scen, t = 24, peak = 0.7, lambda = 15, k = 1.
     adj_AUC_diff = c(par_gform_auc$AUC_diff, iptw_auc$AUC_diff, DB_auc$AUC_diff, DB_A_auc$AUC_diff, DB_Y_auc$AUC_diff, DB_AY_auc$AUC_diff))
   
   if (!is.null(boot)) {
-      
-      #----- Bootstrap
-      #=========================================================================
-      df_result_b <- NULL
-      
     
-      #--- Bootstrap data
-      for (i in 1:boot) {
-        idx      <- sample(1:n, n, replace = T)
-        freq_id  <- table(idx)
-        df_boot  <- NULL
-        
-        for(j in 1:max(freq_id)) {
-          # Loop over repeated id
-          temp_df <- dat[dat$id %in% names(freq_id[freq_id %in% c(j:max(freq_id))]), ]
-          temp_df$boot_id <- paste0(temp_df$id, "_", j)
-          df_boot <- rbind(df_boot, temp_df)
-        }
-        
-        trueAUC_Y1_b    <- auc_smooth_trap_area(a = a, b = b, dat = df_boot, resvar = "Y1")
-        trueAUC_Y0_b    <- auc_smooth_trap_area(a = a, b = b, dat = df_boot, resvar = "Y0")
-        trueAUC_diff_b  <- trueAUC_Y1_b - trueAUC_Y0_b
-        
-        biasAUC_Y1_b    <- auc_smooth_trap_area(a = a, b = b, dat = df_boot[df_boot$A==1,], resvar = "Y")
-        biasAUC_Y0_b    <- auc_smooth_trap_area(a = a, b = b, dat = df_boot[df_boot$A==0,], resvar = "Y")
-        biasAUC_diff_b  <- biasAUC_Y1_b - biasAUC_Y0_b
-        
-        
-        #--- Bootstrap estimates
-        
-        # parametric G-formula
-        par_gform_b <- par_gform(dat = df_boot)
-        
-        # IPW
-        iptw_b <- iptw(dat = df_boot)
-        
-        # DB both
-        DB_b <- DB_both(dat = df_boot)
-        
-        # Double-robust methods: Misclassification of treatment model 
-        DB_A_b <- DB_A(dat = df_boot)
-        
-        # Double-robust methods: Misclassification of outcome model
-        DB_Y_b <- DB_Y(dat = df_boot)
-        
-        # Double-robust methods: Misclassification of both treatment and outcome models
-        DB_AY_b <- DB_AY(dat = df_boot)
-        
-        df_b <- data.frame(
-          method = c("Gform", "IPW", "DB", "DB_A", "DB_Y", "DB_AY"),
-          trueAUC_Y1 = trueAUC_Y1_b,
-          trueAUC_Y0 = trueAUC_Y0_b,
-          biasAUC_Y1 = biasAUC_Y1_b,
-          biasAUC_Y0 = biasAUC_Y0_b,
-          adj_AUC1 = c(par_gform_b$adj_AUC1, iptw_b$adj_AUC1, DB_b$adj_AUC1, DB_A_b$adj_AUC1, DB_Y_b$adj_AUC1, DB_AY_b$adj_AUC1),
-          adj_AUC0 = c(par_gform_b$adj_AUC0, iptw_b$adj_AUC0, DB_b$adj_AUC0, DB_A_b$adj_AUC0, DB_Y_b$adj_AUC0, DB_AY_b$adj_AUC0),
-          true_AUC_diff = trueAUC_diff_b,
-          bias_AUC_diff = biasAUC_diff_b,
-          adj_AUC_diff = c(par_gform_b$AUC_diff, iptw_b$AUC_diff, DB_b$AUC_diff, DB_A_b$AUC_diff, DB_Y_b$AUC_diff, DB_AY_b$AUC_diff),
-          iteration = i)
-        
-        df_result_b <- rbind(df_result_b, df_b)
+    #----- Bootstrap
+    #=========================================================================
+    df_result_b <- NULL
+    
+    
+    #--- Bootstrap data
+    for (i in 1:boot) {
+      idx      <- sample(1:n, n, replace = T)
+      freq_id  <- table(idx)
+      df_boot  <- NULL
+      
+      for(j in 1:max(freq_id)) {
+        # Loop over repeated id
+        temp_df <- dat[dat$id %in% names(freq_id[freq_id %in% c(j:max(freq_id))]), ]
+        temp_df$boot_id <- paste0(temp_df$id, "_", j)
+        df_boot <- rbind(df_boot, temp_df)
       }
       
-      # Summary data for bootstrap
-      df_est <- df_result_b |> 
-        group_by(method) |>
-        summarise(trueAUC_Y1_lb     = quantile(trueAUC_Y1, probs = (1 - conf_lv)/2),
-                  trueAUC_Y1_ub     = quantile(trueAUC_Y1, probs = (1 + conf_lv)/2),
-                  trueAUC_Y0_lb     = quantile(trueAUC_Y0, probs = (1 - conf_lv)/2),
-                  trueAUC_Y0_ub     = quantile(trueAUC_Y0, probs = (1 + conf_lv)/2),
-                  biasAUC_Y1_lb     = quantile(biasAUC_Y1, probs = (1 - conf_lv)/2),
-                  biasAUC_Y1_ub     = quantile(biasAUC_Y1, probs = (1 + conf_lv)/2),
-                  biasAUC_Y0_lb     = quantile(biasAUC_Y0, probs = (1 - conf_lv)/2),
-                  biasAUC_Y0_ub     = quantile(biasAUC_Y0, probs = (1 + conf_lv)/2),
-                  adj_AUC1_lb       = quantile(adj_AUC1, probs = (1 - conf_lv)/2),
-                  adj_AUC1_ub       = quantile(adj_AUC1, probs = (1 + conf_lv)/2),
-                  adj_AUC0_lb       = quantile(adj_AUC0, probs = (1 - conf_lv)/2),
-                  adj_AUC0_ub       = quantile(adj_AUC0, probs = (1 + conf_lv)/2),
-                  true_AUC_diff_lb  = quantile(true_AUC_diff, probs = (1 - conf_lv)/2),
-                  true_AUC_diff_ub  = quantile(true_AUC_diff, probs = (1 + conf_lv)/2),
-                  bias_AUC_diff_lb  = quantile(bias_AUC_diff, probs = (1 - conf_lv)/2),
-                  bias_AUC_diff_ub  = quantile(bias_AUC_diff, probs = (1 + conf_lv)/2),
-                  adj_AUC_diff_lb   = quantile(adj_AUC_diff, probs = (1 - conf_lv)/2),
-                  adj_AUC_diff_ub   = quantile(adj_AUC_diff, probs = (1 + conf_lv)/2))|> 
-        ungroup() |>
-        right_join(df_est, by = "method") |>
-        datawizard::data_rotate(colnames = TRUE, rownames = "param")
+      trueAUC_Y1_b    <- auc_smooth_trap_area(a = a, b = b, dat = df_boot, resvar = "Y1")
+      trueAUC_Y0_b    <- auc_smooth_trap_area(a = a, b = b, dat = df_boot, resvar = "Y0")
+      trueAUC_diff_b  <- trueAUC_Y1_b - trueAUC_Y0_b
+      
+      biasAUC_Y1_b    <- auc_smooth_trap_area(a = a, b = b, dat = df_boot[df_boot$A==1,], resvar = "Y")
+      biasAUC_Y0_b    <- auc_smooth_trap_area(a = a, b = b, dat = df_boot[df_boot$A==0,], resvar = "Y")
+      biasAUC_diff_b  <- biasAUC_Y1_b - biasAUC_Y0_b
+      
+      
+      #--- Bootstrap estimates
+      
+      # parametric G-formula
+      par_gform_b <- par_gform(dat = df_boot)
+      
+      # IPW
+      iptw_b <- iptw(dat = df_boot)
+      
+      # DB both
+      DB_b <- DB_both(dat = df_boot)
+      
+      # Double-robust methods: Misclassification of treatment model 
+      DB_A_b <- DB_A(dat = df_boot)
+      
+      # Double-robust methods: Misclassification of outcome model
+      DB_Y_b <- DB_Y(dat = df_boot)
+      
+      # Double-robust methods: Misclassification of both treatment and outcome models
+      DB_AY_b <- DB_AY(dat = df_boot)
+      
+      df_b <- data.frame(
+        method = c("Gform", "IPW", "DB", "DB_A", "DB_Y", "DB_AY"),
+        trueAUC_Y1 = trueAUC_Y1_b,
+        trueAUC_Y0 = trueAUC_Y0_b,
+        biasAUC_Y1 = biasAUC_Y1_b,
+        biasAUC_Y0 = biasAUC_Y0_b,
+        adj_AUC1 = c(par_gform_b$adj_AUC1, iptw_b$adj_AUC1, DB_b$adj_AUC1, DB_A_b$adj_AUC1, DB_Y_b$adj_AUC1, DB_AY_b$adj_AUC1),
+        adj_AUC0 = c(par_gform_b$adj_AUC0, iptw_b$adj_AUC0, DB_b$adj_AUC0, DB_A_b$adj_AUC0, DB_Y_b$adj_AUC0, DB_AY_b$adj_AUC0),
+        true_AUC_diff = trueAUC_diff_b,
+        bias_AUC_diff = biasAUC_diff_b,
+        adj_AUC_diff = c(par_gform_b$AUC_diff, iptw_b$AUC_diff, DB_b$AUC_diff, DB_A_b$AUC_diff, DB_Y_b$AUC_diff, DB_AY_b$AUC_diff),
+        iteration = i)
+      
+      df_result_b <- rbind(df_result_b, df_b)
+    }
+    
+    # Summary data for bootstrap
+    df_est <- df_result_b |> 
+      group_by(method) |>
+      summarise(trueAUC_Y1_lb     = quantile(trueAUC_Y1, probs = (1 - conf_lv)/2),
+                trueAUC_Y1_ub     = quantile(trueAUC_Y1, probs = (1 + conf_lv)/2),
+                trueAUC_Y0_lb     = quantile(trueAUC_Y0, probs = (1 - conf_lv)/2),
+                trueAUC_Y0_ub     = quantile(trueAUC_Y0, probs = (1 + conf_lv)/2),
+                biasAUC_Y1_lb     = quantile(biasAUC_Y1, probs = (1 - conf_lv)/2),
+                biasAUC_Y1_ub     = quantile(biasAUC_Y1, probs = (1 + conf_lv)/2),
+                biasAUC_Y0_lb     = quantile(biasAUC_Y0, probs = (1 - conf_lv)/2),
+                biasAUC_Y0_ub     = quantile(biasAUC_Y0, probs = (1 + conf_lv)/2),
+                adj_AUC1_lb       = quantile(adj_AUC1, probs = (1 - conf_lv)/2),
+                adj_AUC1_ub       = quantile(adj_AUC1, probs = (1 + conf_lv)/2),
+                adj_AUC0_lb       = quantile(adj_AUC0, probs = (1 - conf_lv)/2),
+                adj_AUC0_ub       = quantile(adj_AUC0, probs = (1 + conf_lv)/2),
+                true_AUC_diff_lb  = quantile(true_AUC_diff, probs = (1 - conf_lv)/2),
+                true_AUC_diff_ub  = quantile(true_AUC_diff, probs = (1 + conf_lv)/2),
+                bias_AUC_diff_lb  = quantile(bias_AUC_diff, probs = (1 - conf_lv)/2),
+                bias_AUC_diff_ub  = quantile(bias_AUC_diff, probs = (1 + conf_lv)/2),
+                adj_AUC_diff_lb   = quantile(adj_AUC_diff, probs = (1 - conf_lv)/2),
+                adj_AUC_diff_ub   = quantile(adj_AUC_diff, probs = (1 + conf_lv)/2))|> 
+      ungroup() |>
+      right_join(df_est, by = "method") |>
+      datawizard::data_rotate(colnames = TRUE, rownames = "param")
   }
   
   return(df_est)
-
+  
 }
 
 

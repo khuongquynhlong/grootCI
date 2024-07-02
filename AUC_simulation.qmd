@@ -46,15 +46,15 @@ We organized the workflow into 3 main Sections:
 -   Section 2: to develope model-based GROOT and compare estimates to the non-parametric GROOT
 -   Section 3: to extend the model-based GROOT to account for confounders using causal inference approach (e.g., g-methods)
 
-We utilized the simulation approach to serve the three aims We did simulation in the context of pain research with the outcome evaluated using the Numeric Rating Scale (NRS), with the score ranging from 0 (no pain) to 10 (most intensive).
+We did simulation in the context of pain research with the outcome evaluated using the Numeric Rating Scale (NRS), with the score ranging from 0 (no pain) to 10 (most intensive).
 
 ## Aim 1: Comparing power {#sec-aim1}
 
-In this section, we first simulate the the responses in the NRS scale in a parallel-group RCT with two arms: new drug (*"Treatment"*) compare to an active control (*"Control"*) , over the period of 24 hours. We assumed patients response to both treatments with *"typical curve"* with 3 phases: fast response, maintainance, and losing effect.
+In this section, we first simulate the the responses in the NRS scale in a parallel-group RCT with two arms: new drug (*"Treatment"*) compare to an active control (*"Control"*) , over the period of 24 hours. We assumed patients response to both treatments with *"typical curve"* with 3 phases: fast response, maintenance, and losing effect.
 
-We then compared the power of non-parametric GROOT estimate with traditional longitudinal approachs of analyzing categorical reponse. The statistical power was calculated as the proportion of time reaching statistical significance in a 1000-iteration run. For simplicity, we choose the Clinicially Meaningful Response (CMR) $\delta$ as $>50 \%$ improvement in the NRS using a modified percent change from baseline.
+We then compared the power of non-parametric GROOT estimate with traditional longitudinal approaches of analyzing categorical responses. The statistical power was calculated as the proportion of time reaching statistical significance in a 1000-iteration run. For simplicity, we choose the Clinically Meaningful Response (CMR) $\delta$ as $>50 \%$ improvement in the NRS using a modified percent change from baseline.
 
-### Define all functions
+### Define functions for aim 1
 
 ::: panel-tabset
 #### Function 1
@@ -110,7 +110,7 @@ x$plot
 
 #### Function 2
 
-**To Simulate data (wide data)**
+**To Simulate data (wide form)**
 
 ```{r}
 sim_dat_wide_nocov <- function(N = 100, n_measure = 25, arm_name = c("Treatment", "Control"), diff_ratio = 0.08) {
@@ -175,7 +175,8 @@ rbind(head(df_change), tail(df_change)) |> knitr::kable()
 **Visualize the Group response curve**
 
 ```{r, fig.width=12, fig.height=6}
-# Set up the dunction
+#| label: fig-naturalreps01
+#| fig-cap: "Natural response curves (on the binary scale)" 
 plot_GRO <- function(dat) {
   indat <- dat
   plot_step <- indat |> 
@@ -373,16 +374,16 @@ The two estimates for area under the curves are identical, however, standard err
 
 ### Introduction
 
-The non-parametric GROOT provide an accurate way to measure area under the response curve. However, it has some disadvantages:
+The non-parametric GROOT provides an accurate way to measure area under the group response curve. However, it has some disadvantages:
 
 -   Requires balanced longitudinal data (i.e., requires patients having the same number of repeated measurements obtained at a common set of occasions)
 -   Cannot adjust for covariates or selection bias.
 
-To address that problem, we proposed another approach using model with flexible terms on time to model the response curve of patients and calculate the GROOT based on that model.
+To address that problem, we proposed model-based approach, using model with flexible terms (on time variable) to model the responses of patients and calculate the GROOT based on the predicted average response curve.
 
 ### Methods & Results
 
-We propose a simple method for model-based GROOT by two main step:
+We propose a simple method for model-based GROOT with two main steps:
 
 -   Step 1: fit the response curve using Generalized Addictive Model, with smooth terms for time. Obtain the model predicted values for model-based group response curves.
 
@@ -412,6 +413,8 @@ summary(gam_m)
 The predicted values from GAM are similar to the observed response probability
 
 ```{r, fig.width=12, fig.height=6}
+#| label: fig-predactual
+#| fig-cap: "Predicted (from GAM) and observered response curves" 
 df$pred <- predict(gam_m, type = "response")
 
 df |> group_by(group, t) |>
@@ -463,8 +466,13 @@ auc_smooth_trap <- function(a, b,  dat, resvar, errvar, tvar = "t") {
 
 ```{r}
 auc_smooth_tr <- auc_smooth_trap(a = 0, b = 24, dat = df |> filter(group == "Treatment"), resvar = "pred", errvar = "pred_var")
-
 auc_smooth_ct <- auc_smooth_trap(a = 0, b = 24, dat = df |> filter(group == "Control"), resvar = "pred", errvar = "pred_var")
+```
+
+Model-based GROOT for control group
+
+```{r}
+auc_smooth_ct$area
 ```
 
 Model-based GROOT for treatment group
@@ -473,11 +481,6 @@ Model-based GROOT for treatment group
 auc_smooth_tr$area
 ```
 
-Model-based GROOT for control group
-
-```{r}
-auc_smooth_ct$area
-```
 
 The estimates are similar to non-parametric GROOT
 
@@ -490,7 +493,7 @@ auc_np[, "area"]
 
 ### Introduction
 
-In this section, we illustrated the process of applying three well-known methods to estimate causal effects in the context of existing confounders: parametric g-formula, inverse probability weighting, and double-robust estimator. We did a simulation to compare the performance of these methods under different scenarios.
+In this section, we illustrate the process of applying three well-known methods to estimate causal effects in the context of existing confounders: parametric g-formula, inverse probability weighting, and double-robust estimator. We did a simulation to compare the performance of these methods under different scenarios.
 
 ### Methods
 
@@ -498,7 +501,7 @@ The simulation followed the ADEMP framework (**A**ims, **D**ata-generating mecha
 
 -   Aim: To compare the performance of different estimation methods to obtain causal estimates under the presence of confounders with different scenarios.
 
--   Data-generating mechanism: Four simulation mechanisms were set: small confounding, medium confounding, large confounding, and large confounding with model misspecification. Details are presented in section XXX.
+-   Data-generating mechanism: Four simulation mechanisms were set: small confounding, medium confounding, large confounding, and large confounding with model misspecification. Details are presented in section @sec-simsetup
 
 -   Estimands: Group Responses Outcome Over Time (GROOT) estimated by the area under the group response curve. The absolute difference between GROOTs of two treatment arms was also calculated.
 
@@ -506,9 +509,9 @@ The simulation followed the ADEMP framework (**A**ims, **D**ata-generating mecha
 
 -   Performance measures: We compared the performance of these methods using bias, which was calculated as absolute bias: $|\text{True GROOT - estimate GROOT}|$.
 
-#### Simulation setup
+#### Simulation setup {#sec-simsetup}
 
-We first set up three confounding mechanisms (i.e., *"small"*, *"medium"*, and *"large"*) illustrating different situations of *"small"*, *"medium"*, and *"large"* confounding effects in terms of the magnitude of absolute bias for GROOT difference as well as the number of confounders (i.e., one, two, and three, respectively). Figure XXX shows the Directed Acyclic Graphs (DAG) of these three confounding mechanisms. To illustrate a problem that usually happens in real-world situations, which is unobserved confounders, we set U as an unobserved variable in the DAG.
+We first set up three confounding mechanisms (i.e., *"small"*, *"medium"*, and *"large"*) illustrating different situations of *"small"*, *"medium"*, and *"large"* confounding effects in terms of the magnitude of absolute bias for GROOT difference as well as the number of confounders (i.e., one, two, and three, respectively). @fig-dag shows the Directed Acyclic Graphs (DAG) of these three confounding mechanisms. To illustrate a problem that usually happens in real-world situations, which is unobserved confounders, we set U as an unobserved variable in the DAG.
 
 -   In the *"small"* confounding mechanism, there is a backdoor path from $Y_t \leftarrow U \rightarrow X_1 \rightarrow A$. Thus, conditioning on $X_1$ is sufficient to eliminate confounding (@fig-dag1)
 
@@ -1114,7 +1117,7 @@ The table below display the comparison between perfomance between different meth
 
     -   Medium confounding scenario: $GROOT^{(1)} = 0.656$, $GROOT^{(0)} = 0.492$, $GD_{true} = 0.164$
 
-    -   Large confounding scenario: $GROOT^{(1)} = 0.632$, $GROOT^{(0)} = 0.503$, $GD_{true} = 0.129$
+    -   Large confounding scenario: $GROOT^{(1)} = 0.621$, $GROOT^{(0)} = 0.491$, $GD_{true} = 0.129$
 
 -   The `unadjusted GROOT` for treatment group $(GROOT_{unadj} | A = 1)$, control group $(GROOT_{unadj} | A = 0)$, and GROOT difference ($GD_{unadj}$) were slightlty different from the true values in the small congfounding, but increases substaintially in the medium and large confounding scenarios. To be specific 
 
@@ -1122,7 +1125,7 @@ The table below display the comparison between perfomance between different meth
 
     -   Medium confounding scenario: $(GROOT_{unadj} | A = 1) = 0.720$, $(GROOT_{unadj} | A = 0) = 0.406$, $GD_{unadj} = 0.314$
 
-    -   Large confounding scenario: $(GROOT_{unadj} | A = 1) = 0.751$, $(GROOT_{unadj} | A = 0) = 0.341$, $GD_{unadj} = 0.410$
+    -   Large confounding scenario: $(GROOT_{unadj} | A = 1) = 0.739$, $(GROOT_{unadj} | A = 0) = 0.341$, $GD_{unadj} = 0.398$
 
 <!-- - The `adjusted GROOT` for treatment group $(GROOT_{ad} | A = 1)$, control group $(GROOT_{ad} | A = 0)$, and GROOT difference ($GD_{ad}$) were: -->
 
@@ -1132,7 +1135,9 @@ The table below display the comparison between perfomance between different meth
 
 <!--   - Large confounding scenario: $(GROOT_{ad} | A = 1) = $, $(GROOT_{ad} | A = 0) = $, $GD_{ad} = $ -->
 
--   The `absolute biases`, which were measured by the absolute difference between the estimated values and the true values, were high for unadjusted estimate, with the absolute bias ranges from 0.016 in the small confounding scenario, to 0.150 in the medium confounding, and 0.280 in the large confounding scenario. However, the biases were small in adjusted estimates, with the biases range from 0.000 to 0.013 varying for different adjustment methods in all scenarios. The small variations between different methods might be conftributed to the model fit using different smooth parameters. In the scenario 4 (i.e., large confounding with model misspecification), if one of two models (treatment and outcome models) were misspecified, the adjusted estimated (i.e., DB-A and DB-Y) remained unbiased. However, if both models were misspecified, the estimate was bias (DB-AY).
+-   The `absolute biases`, which were measured by the absolute difference between the estimated values and the true values, were high for unadjusted estimate, with the absolute bias ranges from 0.016 in the small confounding scenario, to 0.150 in the medium confounding, and 0.270 in the large confounding scenario. However, the biases were small in adjusted estimates, with the biases range from 0.000 to 0.002 varying for different adjustment methods in all scenarios. The small variations between different methods might be contributed to the model fit using different smooth parameters. 
+
+- In the scenario 4 (i.e., large confounding with model misspecification), if one of two models (treatment and outcome models) were misspecified, the adjusted estimated (i.e., DB-A and DB-Y) remained unbiased. However, if both models were misspecified, the estimate was bias (DB-AY).
 
 
 
