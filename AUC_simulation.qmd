@@ -505,7 +505,7 @@ The simulation followed the ADEMP framework (**A**ims, **D**ata-generating mecha
 
 -   Estimands: Group Responses Outcome Over Time (GROOT) estimated by the area under the group response curve. The absolute difference between GROOTs of two treatment arms was also calculated.
 
--   Methods: The the g-methods were used: Parametric g-formula (PG), Inverse Probability Weighting (IPW), and Double-robust estimator (DRE). The estimates were compared to the unadjusted estimates and the true values.
+-   Methods: The the g-methods were used: Parametric g-formula (PG), Inverse Probability Weighting (IPW), and Double-robust estimator (DB). The estimates were compared to the unadjusted estimates and the true values.
 
 -   Performance measures: We compared the performance of these methods using bias, which was calculated as absolute bias: $|\text{True GROOT - estimate GROOT}|$.
 
@@ -533,13 +533,13 @@ Based on these three confounding scenarios, we set up the simulation with four s
 
 -   **Model correctly specified**: for the first three scenarios, we correctly controlled confounders based on each confounding scenario (i.e., scenario 1: $X_1$, scenario 2: $X_1$ and $X_3$, scenario 3: $X_1$, $X_2$, and $X_3$
 
--   **Model misspecification**: In this scenario, we used the same confounding mechanism as scenario 3, except that we intentionally misspecified the models. In particular, in the model for treatment assignment (i.e., for IPW), we included only intercept instead of $X_1$, $X_2$, and $X_3$. Similarly, for the outcome regression model (i.e., g-formula), the model with only intercept was used. Thus, creating three situations for DRE:
+-   **Model misspecification**: In this scenario, we used the same confounding mechanism as scenario 3, except that we intentionally misspecified the models. In particular, in the model for treatment assignment (i.e., for IPW), we included only intercept instead of $X_1$, $X_2$, and $X_3$. Similarly, for the outcome regression model (i.e., g-formula), the model with only intercept was used. Thus, creating three situations for DB:
 
-    -   The model for treatment assignment was misspecified but the outcome regression model was correct (DRE-A)
+    -   The model for treatment assignment was misspecified but the outcome regression model was correct (DB-A)
 
-    -   The model for treatment assignment was correct but the outcome regression model was misspecified (DRE-Y).
+    -   The model for treatment assignment was correct but the outcome regression model was misspecified (DB-Y).
 
-    -   Both treatmet and outcome models were misspecified (DRE-AY)
+    -   Both treatmet and outcome models were misspecified (DB-AY)
 
 #### Data generation
 
