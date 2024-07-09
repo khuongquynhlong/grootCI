@@ -554,8 +554,8 @@ The data for each scenario was generated according to its confounding mechanism.
 &X_2 = 0.5 ^{*} \text{U} + \varepsilon_{x2}; ;~~~~~~~ \text{with: } \varepsilon_{x2} \sim N(0, 0.1)& \nonumber\\
 &X_3  \sim N(0, 2) \nonumber\\
 &A \sim \text{Bin}(n, p_a) ;~~~~~~~~~~~~~~ \text{with: logit}(p_a) = 0.5^{*}X_1 + 0.5^{*} X_3 \nonumber\\
-&Y_t^{(1)} \sim \text{Bin}(n, p_y) ;~~~~~~~~~~ \text{with: logit}(p_{y^{(1)}}) = \text{logit}(f_0(t)) + I_{(\text{A}=1)} + {\color{Red}0.5^{*} \text{U}} \nonumber\\
-&Y_t^{(0)} \sim \text{Bin}(n, p_y) ;~~~~~~~~~~ \text{with: logit}(p_{y^{(0)}}) = \text{logit}(f_0(t)) + I_{(\text{A}=1)} + {\color{Red}0.5^{*} \text{U}} \nonumber\\
+&Y_t^{(1)} \sim \text{Bin}(n, p_{y^{(1)}}) ;~~~~~~~~ \text{with: logit}(p_{y^{(1)}}) = \text{logit}({\color{Red}f_0(t)}) + I_{(\text{A}=1)} + {\color{Red}0.5^{*} \text{U}} \nonumber\\
+&Y_t^{(0)} \sim \text{Bin}(n, p_{y^{(0)}}) ;~~~~~~~~ \text{with: logit}(p_{y^{(0)}}) = \text{logit}({\color{Red}f_0(t)}) + I_{(\text{A}=1)} + {\color{Red}0.5^{*} \text{U}} \nonumber\\
 &Y_t =  Y_t^{(1)*}A + Y_t^{(0)*}(1 - A) \nonumber\\ 
 \end{align*}
 ```
@@ -582,8 +582,8 @@ Therefore $f_0(t) \sim Weibull(\lambda = 15, k = 1.3)$
 &X_2 = 0.5 ^{*} \text{U} + \varepsilon_{x2}; ;~~~~~~~ \text{with: } \varepsilon_{x2} \sim N(0, 0.1)& \nonumber\\
 &X_3  \sim N(0, 2) \nonumber\\
 &A \sim \text{Bin}(n, p_a) ;~~~~~~~~~~~~~~ \text{with: logit}(p_a) = 0.5^{*}X_1 + 0.5^{*} X_3 \nonumber\\
-&Y_t^{(1)} \sim \text{Bin}(n, p_y) ;~~~~~~~~~~ \text{with: logit}(p_{y^{(1)}}) = \text{logit}(f_0(t)) + I_{(\text{A}=1)} + {\color{Red}0.5^{*} \text{U} + 0.5^{*} X_3} \nonumber\\
-&Y_t^{(0)} \sim \text{Bin}(n, p_y) ;~~~~~~~~~~ \text{with: logit}(p_{y^{(0)}}) = \text{logit}(f_0(t)) + I_{(\text{A}=1)} + {\color{Red}0.5^{*} \text{U} + 0.5^{*} X_3} \nonumber\\
+&Y_t^{(1)} \sim \text{Bin}(n, p_{y^{(1)}}) ;~~~~~~~~ \text{with: logit}(p_{y^{(1)}}) = \text{logit}({\color{Red}f_0(t)}) + I_{(\text{A}=1)} + {\color{Red}0.5^{*} \text{U} + 0.5^{*} X_3} \nonumber\\
+&Y_t^{(0)} \sim \text{Bin}(n, p_{y^{(0)}}) ;~~~~~~~~ \text{with: logit}(p_{y^{(0)}}) = \text{logit}({\color{Red}f_0(t)}) + I_{(\text{A}=1)} + {\color{Red}0.5^{*} \text{U} + 0.5^{*} X_3} \nonumber\\
 &Y_t =  Y_t^{(1)*}A + Y_t^{(0)*}(1 - A) \nonumber\\ 
 \end{align*}
 ```
@@ -598,8 +598,8 @@ Where $f_0(t)$ indicates the baseline response probability at time $t$. $f_0(t) 
 &X_2 = 0.5 ^{*} \text{U} + \varepsilon_{x2}; ;~~~~~~~ \text{with: } \varepsilon_{x2} \sim N(0, 0.1)& \nonumber\\
 &X_3  \sim N(0, 2) \nonumber\\
 &A \sim \text{Bin}(n, p_a) ;~~~~~~~~~~~~~~ \text{with: logit}(p_a) = 0.5^{*}X_1 + 0.5^{*} X_3 \nonumber\\
-&Y_t^{(1)} \sim \text{Bin}(n, p_y) ;~~~~~~~~~~ \text{with: logit}(p_{y^{(1)}}) = \text{logit}(f_0(t)) + I_{(\text{A}=1)} + {\color{Red}0.5^{*} \text{U} + 0.75^{*} X_3 + 0.75^{*} X_2} \nonumber\\
-&Y_t^{(0)} \sim \text{Bin}(n, p_y) ;~~~~~~~~~~ \text{with: logit}(p_{y^{(0)}}) = \text{logit}(f_0(t)) + I_{(\text{A}=1)} + {\color{Red}0.5^{*} \text{U} + 0.75^{*} X_3 + 0.75^{*} X_2} \nonumber\\
+&Y_t^{(1)} \sim \text{Bin}(n, p_{y^{(1)}}) ;~~~~~~~~ \text{with: logit}(p_{y^{(1)}}) = \text{logit}({\color{Red}f_0(t)}) + I_{(\text{A}=1)} + {\color{Red}0.5^{*} \text{U} + 0.75^{*} X_3 + 0.75^{*} X_2} \nonumber\\
+&Y_t^{(0)} \sim \text{Bin}(n, p_{y^{(0)}}) ;~~~~~~~~ \text{with: logit}(p_{y^{(0)}}) = \text{logit}({\color{Red}f_0(t)}) + I_{(\text{A}=1)} + {\color{Red}0.5^{*} \text{U} + 0.75^{*} X_3 + 0.75^{*} X_2} \nonumber\\
 &Y_t =  Y_t^{(1)*}A + Y_t^{(0)*}(1 - A) \nonumber\\ 
 \end{align*}
 ```
