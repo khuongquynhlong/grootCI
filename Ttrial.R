@@ -237,8 +237,8 @@ auc_ttrial <- function(dat = ttrial, trial_var, a, b, outcome, boot = NULL, seed
     
     df$pred1 <- predict.gam(gam1, newdata = df |> mutate(tr = 1), type = "response")
     df$pred0 <- predict.gam(gam0, newdata = df |> mutate(tr = 0), type = "response")
-    adj_AUC1 <- auc_smooth_trap_ttrial(a = 0, b = 12, dat = df, resvar = "pred1", tvar = "monthvisit")
-    adj_AUC0 <- auc_smooth_trap_ttrial(a = 0, b = 12, dat = df, resvar = "pred0", tvar = "monthvisit")
+    adj_AUC1 <- auc_smooth_trap_ttrial(a = a, b = b, dat = df, resvar = "pred1", tvar = "monthvisit")
+    adj_AUC0 <- auc_smooth_trap_ttrial(a = a, b = b, dat = df, resvar = "pred0", tvar = "monthvisit")
     AUC_diff <- adj_AUC1$area - adj_AUC0$area
     df_out   <- rbind(adj_AUC1$data, adj_AUC0$data)
     df_out$arm <- rep(c("Testosterone", "Placebo"), each = 5)
