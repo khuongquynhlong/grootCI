@@ -407,15 +407,46 @@ print(elapsed_time)
 
 
 
-png("Outfigs/ttrial_PDQQ4_sens.png", units="in", width = 8, height = 6, res = 300)
-AUC_sen_pdq |> as.data.frame() |>
-  ggplot(aes(x = V1, y = V8)) +
-  geom_line(linewidth = 1, color = "#02818a") +
-  geom_ribbon(aes(ymin = V9, ymax = V10), alpha = 0.3, fill = "gold") +
-  scale_y_continuous(limits = c(0, 0.25)) +
+
+
+auc_sen_est <- AUC_sen_pdq |> as.data.frame() |> select(V1, V2, V5, V8) |>
+  gather(-V1, key = "type", value = "AUC") |>
+  mutate(type = case_when(type == "V2" ~ "Testosterone",
+                          type == "V5" ~ "Placebo",
+                          type == "V8" ~ "Difference"))
+
+auc_sen_lb <- AUC_sen_pdq |> as.data.frame() |> select(V1, V3, V6, V9) |>
+  gather(-V1, key = "type", value = "lb") |>
+  mutate(type = case_when(type == "V3" ~ "Testosterone",
+                          type == "V6" ~ "Placebo",
+                          type == "V9" ~ "Difference"))
+
+auc_sen_ub <- AUC_sen_pdq |> as.data.frame() |> select(V1, V4, V7, V10) |>
+  gather(-V1, key = "type", value = "ub") |>
+  mutate(type = case_when(type == "V4" ~ "Testosterone",
+                          type == "V7" ~ "Placebo",
+                          type == "V10" ~ "Difference"))
+
+AUC_sen_pdq_long <- auc_sen_est |>
+  left_join(auc_sen_lb, by = c("V1", "type")) |>
+  left_join(auc_sen_ub, by = c("V1", "type")) |>
+  mutate(type = factor(type, levels = c("Placebo", "Testosterone", "Difference")))
+
+
+
+
+png("Outfigs/ttrial_PDQQ4_sens.png", units="in", width = 10, height = 5.5, res = 300)
+AUC_sen_pdq_long |> 
+  ggplot(aes(x = V1, y = AUC, fill = type)) +
+  geom_line(linewidth = 1, aes(color = type)) +
+  geom_ribbon(aes(ymin = lb, ymax = ub), alpha = 0.1, show.legend = F) +
+  scale_color_manual(values = c("#0570b0", "#e31a1c", "#78c679")) + 
+  scale_fill_manual(values = c("#0570b0", "#e31a1c", "#78c679")) + 
+  scale_y_continuous(limits = c(0, 0.6)) +
   scale_x_continuous(limits = c(0, 3.5), breaks = seq(0, 3.5, by = 0.5)) +
-  labs(x = "CMR cutoffs", y = "AUC (Testosterone - Placebo)",
-       title = "AUC differences for different CMR cutoffs") +
+  labs(x = "CMR cutoffs", y = "AUC",
+       title = "Sensitivity: AUC for different CMR cutoffs",
+       color = NULL, fill = NULL) +
   mytheme()
 dev.off()
 
@@ -443,7 +474,7 @@ c(disf$AUC_diff, disf$AUC_diff_b)
 
 
 #--- Running parallel
-cutoff_disf <- seq(1, 13, by = 0.5)
+cutoff_disf <- seq(1, 13, by = 1)
 
 sens_ttrial_disf <- function(cutoff) {
   AUC_sen <- matrix(ncol = 10, nrow = 1)
@@ -475,18 +506,48 @@ elapsed_time <- Sys.time()-start_time
 print(elapsed_time)
 
 
+auc_sen_est_disf <- AUC_sen_disf |> as.data.frame() |> select(V1, V2, V5, V8) |>
+  gather(-V1, key = "type", value = "AUC") |>
+  mutate(type = case_when(type == "V2" ~ "Testosterone",
+                          type == "V5" ~ "Placebo",
+                          type == "V8" ~ "Difference"))
+
+auc_sen_lb_disf <- AUC_sen_disf |> as.data.frame() |> select(V1, V3, V6, V9) |>
+  gather(-V1, key = "type", value = "lb") |>
+  mutate(type = case_when(type == "V3" ~ "Testosterone",
+                          type == "V6" ~ "Placebo",
+                          type == "V9" ~ "Difference"))
+
+auc_sen_ub_disf <- AUC_sen_disf |> as.data.frame() |> select(V1, V4, V7, V10) |>
+  gather(-V1, key = "type", value = "ub") |>
+  mutate(type = case_when(type == "V4" ~ "Testosterone",
+                          type == "V7" ~ "Placebo",
+                          type == "V10" ~ "Difference"))
+
+AUC_sen_disf_long <- auc_sen_est_disf |>
+  left_join(auc_sen_lb_disf, by = c("V1", "type")) |>
+  left_join(auc_sen_ub_disf, by = c("V1", "type")) |>
+  mutate(type = factor(type, levels = c("Placebo", "Testosterone", "Difference")))
+
+
 
 png("Outfigs/ttrial_DISF_M_II_sens.png", units="in", width = 8, height = 4, res = 300)
-AUC_sen_disf |> as.data.frame() |>
-  ggplot(aes(x = V1, y = V8)) +
-  geom_line(linewidth = 1, color = "#02818a") +
-  geom_ribbon(aes(ymin = V9, ymax = V10), alpha = 0.3, fill = "gold") +
-  scale_y_continuous(limits = c(0, 0.3)) +
+AUC_sen_disf_long |> 
+  ggplot(aes(x = V1, y = AUC, fill = type)) +
+  geom_line(linewidth = 1, aes(color = type)) +
+  geom_ribbon(aes(ymin = lb, ymax = ub), alpha = 0.1, show.legend = F) +
+  scale_color_manual(values = c("#0570b0", "#e31a1c", "#78c679")) + 
+  scale_fill_manual(values = c("#0570b0", "#e31a1c", "#78c679")) + 
+  scale_y_continuous(limits = c(0, 0.65)) +
   scale_x_continuous(limits = c(0, 13), breaks = seq(0, 13, by = 2)) +
-  labs(x = "CMR cutoffs", y = "AUC (Testosterone - Placebo)",
-       title = "AUC differences for different CMR cutoffs") +
+  labs(x = "CMR cutoffs", y = "AUC",
+       title = "Sensitivity: AUC for different CMR cutoffs",
+       color = NULL, fill = NULL) +
   mytheme()
 dev.off()
+
+
+
 
 
 
@@ -513,7 +574,7 @@ c(iief$AUC_diff, iief$AUC_diff_b)
 
 
 #--- Running parallel
-cutoff_iief <- seq(1, 12, by = 0.5)
+cutoff_iief <- seq(1, 12, by = 1)
 
 sens_ttrial_iief <- function(cutoff) {
   AUC_sen <- matrix(ncol = 10, nrow = 1)
@@ -545,18 +606,47 @@ elapsed_time <- Sys.time()-start_time
 print(elapsed_time)
 
 
+auc_sen_est_iief <- AUC_sen_iief |> as.data.frame() |> select(V1, V2, V5, V8) |>
+  gather(-V1, key = "type", value = "AUC") |>
+  mutate(type = case_when(type == "V2" ~ "Testosterone",
+                          type == "V5" ~ "Placebo",
+                          type == "V8" ~ "Difference"))
+
+auc_sen_lb_iief <- AUC_sen_iief |> as.data.frame() |> select(V1, V3, V6, V9) |>
+  gather(-V1, key = "type", value = "lb") |>
+  mutate(type = case_when(type == "V3" ~ "Testosterone",
+                          type == "V6" ~ "Placebo",
+                          type == "V9" ~ "Difference"))
+
+auc_sen_ub_iief <- AUC_sen_iief |> as.data.frame() |> select(V1, V4, V7, V10) |>
+  gather(-V1, key = "type", value = "ub") |>
+  mutate(type = case_when(type == "V4" ~ "Testosterone",
+                          type == "V7" ~ "Placebo",
+                          type == "V10" ~ "Difference"))
+
+AUC_sen_iief_long <- auc_sen_est_iief |>
+  left_join(auc_sen_lb_iief, by = c("V1", "type")) |>
+  left_join(auc_sen_ub_iief, by = c("V1", "type")) |>
+  mutate(type = factor(type, levels = c("Placebo", "Testosterone", "Difference")))
+
+
 
 png("Outfigs/ttrial_IIEF_sens.png", units="in", width = 8, height = 4, res = 300)
-AUC_sen_iief |> as.data.frame() |>
-  ggplot(aes(x = V1, y = V8)) +
-  geom_line(linewidth = 1, color = "#02818a") +
-  geom_ribbon(aes(ymin = V9, ymax = V10), alpha = 0.3, fill = "gold") +
-  scale_y_continuous(limits = c(0, 0.3)) +
+AUC_sen_iief_long |> 
+  ggplot(aes(x = V1, y = AUC, fill = type)) +
+  geom_line(linewidth = 1, aes(color = type)) +
+  geom_ribbon(aes(ymin = lb, ymax = ub), alpha = 0.1, show.legend = F) +
+  scale_color_manual(values = c("#0570b0", "#e31a1c", "#78c679")) + 
+  scale_fill_manual(values = c("#0570b0", "#e31a1c", "#78c679")) + 
+  scale_y_continuous(limits = c(0, 0.6)) +
   scale_x_continuous(limits = c(0, 13), breaks = seq(0, 13, by = 2)) +
-  labs(x = "CMR cutoffs", y = "AUC (Testosterone - Placebo)",
-       title = "AUC differences for different CMR cutoffs") +
+  labs(x = "CMR cutoffs", y = "AUC",
+       title = "Sensitivity: AUC for different CMR cutoffs",
+       color = NULL, fill = NULL) +
   mytheme()
 dev.off()
+
+
 
 
 
@@ -582,12 +672,89 @@ plotActualProb(dat = ttrial, trial_var = "phy_yes", resp_var = "WLK_Distance_bin
                yaxis = "Increase of \u226550 m in \n6-min walk test", lim = 0.6)
 
 png("Outfigs/ttrial2_wt6m.png", units="in", width = 10, height = 6, res = 300)
-plotAdjuProb(dat = wt6m$data, yaxis = "Increase of \u226550 m in \n6-min walk test", lim = 0.6)
+plotAdjuProb(dat = wt6m$data, yaxis = "Increase of \u226550 m in \n6-min walk test", lim = 0.3)
 dev.off()
 
 c(wt6m$AUC1, wt6m$AUC1_b)
 c(wt6m$AUC0, wt6m$AUC0_b)
 c(wt6m$AUC_diff, wt6m$AUC_diff_b)
+
+
+#--- Running parallel
+cutoff_wt6m <- seq(10, 90, by = 10)
+
+sens_ttrial_wt6m <- function(cutoff) {
+  AUC_sen <- matrix(ncol = 10, nrow = 1)
+  AUC_sen[, 1] <- cutoff
+  
+  ttrial1 <- ttrial |> mutate(chg_WLK_Distance_cmr = ifelse(chg_WLK_Distance >= cutoff, 1, 0))
+  res_auc <- auc_ttrial(dat = ttrial1, trial_var = "phy_yes", a = 0, b = 12,
+                        outcome = "chg_WLK_Distance_cmr", boot = 200, seed = 12345)
+  AUC_sen[1, 2] <- res_auc$AUC1
+  AUC_sen[1, 3] <- res_auc$AUC1_b[[1]]
+  AUC_sen[1, 4] <- res_auc$AUC1_b[[2]]
+  
+  AUC_sen[1, 5] <- res_auc$AUC0
+  AUC_sen[1, 6] <- res_auc$AUC0_b[[1]]
+  AUC_sen[1, 7] <- res_auc$AUC0_b[[2]]
+  
+  AUC_sen[1, 8] <- res_auc$AUC_diff
+  AUC_sen[1, 9] <- res_auc$AUC_diff_b[[1]]
+  AUC_sen[1, 10] <- res_auc$AUC_diff_b[[2]]
+  
+  return(AUC_sen)
+}
+
+
+start_time <- Sys.time()
+r_wt6m <-  plyr::llply(cutoff_wt6m, function(i) sens_ttrial_wt6m(cutoff = i), .parallel = TRUE)
+AUC_sen_wt6m <- do.call(rbind, r_wt6m)
+elapsed_time <- Sys.time()-start_time
+print(elapsed_time)
+
+
+auc_sen_est_wt6m <- AUC_sen_wt6m |> as.data.frame() |> select(V1, V2, V5, V8) |>
+  gather(-V1, key = "type", value = "AUC") |>
+  mutate(type = case_when(type == "V2" ~ "Testosterone",
+                          type == "V5" ~ "Placebo",
+                          type == "V8" ~ "Difference"))
+
+auc_sen_lb_wt6m <- AUC_sen_wt6m |> as.data.frame() |> select(V1, V3, V6, V9) |>
+  gather(-V1, key = "type", value = "lb") |>
+  mutate(type = case_when(type == "V3" ~ "Testosterone",
+                          type == "V6" ~ "Placebo",
+                          type == "V9" ~ "Difference"))
+
+auc_sen_ub_wt6m <- AUC_sen_wt6m |> as.data.frame() |> select(V1, V4, V7, V10) |>
+  gather(-V1, key = "type", value = "ub") |>
+  mutate(type = case_when(type == "V4" ~ "Testosterone",
+                          type == "V7" ~ "Placebo",
+                          type == "V10" ~ "Difference"))
+
+AUC_sen_wt6m_long <- auc_sen_est_wt6m |>
+  left_join(auc_sen_lb_wt6m, by = c("V1", "type")) |>
+  left_join(auc_sen_ub_wt6m, by = c("V1", "type")) |>
+  mutate(type = factor(type, levels = c("Placebo", "Testosterone", "Difference")))
+
+
+
+png("Outfigs/ttrial_wt6m_sens.png", units="in", width = 8, height = 4, res = 300)
+AUC_sen_wt6m_long |> 
+  ggplot(aes(x = V1, y = AUC, fill = type)) +
+  geom_line(linewidth = 1, aes(color = type)) +
+  geom_ribbon(aes(ymin = lb, ymax = ub), alpha = 0.1, show.legend = F) +
+  scale_color_manual(values = c("#0570b0", "#e31a1c", "#78c679")) + 
+  scale_fill_manual(values = c("#0570b0", "#e31a1c", "#78c679")) + 
+  scale_y_continuous(limits = c(-0.05, 0.6)) +
+  scale_x_continuous(limits = c(0, 100), breaks = seq(0, 100, by = 20)) +
+  labs(x = "CMR cutoffs", y = "AUC",
+       title = "Sensitivity: AUC for different CMR cutoffs",
+       color = NULL, fill = NULL) +
+  mytheme()
+dev.off()
+
+
+
 
 
 #----- Increase of ≥8 in PF-10 score
@@ -690,6 +857,81 @@ c(facit$AUC_diff, facit$AUC_diff_b)
 
 
 
+#--- Running parallel
+cutoff_facit <- seq(1, 20, by = 2)
+
+sens_ttrial_facit <- function(cutoff) {
+  AUC_sen <- matrix(ncol = 10, nrow = 1)
+  AUC_sen[, 1] <- cutoff
+  
+  ttrial1 <- ttrial |> mutate(chg_FACIT_cmr = ifelse(chg_FACIT >= cutoff, 1, 0))
+  res_auc <- auc_ttrial(dat = ttrial1, trial_var = "vit_yes", a = 0, b = 12,
+                        outcome = "chg_FACIT_cmr", boot = 200, seed = 12345)
+  AUC_sen[1, 2] <- res_auc$AUC1
+  AUC_sen[1, 3] <- res_auc$AUC1_b[[1]]
+  AUC_sen[1, 4] <- res_auc$AUC1_b[[2]]
+  
+  AUC_sen[1, 5] <- res_auc$AUC0
+  AUC_sen[1, 6] <- res_auc$AUC0_b[[1]]
+  AUC_sen[1, 7] <- res_auc$AUC0_b[[2]]
+  
+  AUC_sen[1, 8] <- res_auc$AUC_diff
+  AUC_sen[1, 9] <- res_auc$AUC_diff_b[[1]]
+  AUC_sen[1, 10] <- res_auc$AUC_diff_b[[2]]
+  
+  return(AUC_sen)
+}
+
+
+start_time <- Sys.time()
+r_facit <-  plyr::llply(cutoff_facit, function(i) sens_ttrial_facit(cutoff = i), .parallel = TRUE)
+AUC_sen_facit <- do.call(rbind, r_facit)
+elapsed_time <- Sys.time()-start_time
+print(elapsed_time)
+
+
+auc_sen_est_facit <- AUC_sen_facit |> as.data.frame() |> select(V1, V2, V5, V8) |>
+  gather(-V1, key = "type", value = "AUC") |>
+  mutate(type = case_when(type == "V2" ~ "Testosterone",
+                          type == "V5" ~ "Placebo",
+                          type == "V8" ~ "Difference"))
+
+auc_sen_lb_facit <- AUC_sen_facit |> as.data.frame() |> select(V1, V3, V6, V9) |>
+  gather(-V1, key = "type", value = "lb") |>
+  mutate(type = case_when(type == "V3" ~ "Testosterone",
+                          type == "V6" ~ "Placebo",
+                          type == "V9" ~ "Difference"))
+
+auc_sen_ub_facit <- AUC_sen_facit |> as.data.frame() |> select(V1, V4, V7, V10) |>
+  gather(-V1, key = "type", value = "ub") |>
+  mutate(type = case_when(type == "V4" ~ "Testosterone",
+                          type == "V7" ~ "Placebo",
+                          type == "V10" ~ "Difference"))
+
+AUC_sen_facit_long <- auc_sen_est_facit |>
+  left_join(auc_sen_lb_facit, by = c("V1", "type")) |>
+  left_join(auc_sen_ub_facit, by = c("V1", "type")) |>
+  mutate(type = factor(type, levels = c("Placebo", "Testosterone", "Difference")))
+
+
+
+png("Outfigs/ttrial_facit_sens.png", units="in", width = 8, height = 4, res = 300)
+AUC_sen_facit_long |> 
+  ggplot(aes(x = V1, y = AUC, fill = type)) +
+  geom_line(linewidth = 1, aes(color = type)) +
+  geom_ribbon(aes(ymin = lb, ymax = ub), alpha = 0.1, show.legend = F) +
+  scale_color_manual(values = c("#0570b0", "#e31a1c", "#78c679")) + 
+  scale_fill_manual(values = c("#0570b0", "#e31a1c", "#78c679")) + 
+  scale_y_continuous(limits = c(-0.05, 1)) +
+  scale_x_continuous(limits = c(0, 20), breaks = seq(0, 20, by = 5)) +
+  labs(x = "CMR cutoffs", y = "AUC",
+       title = "Sensitivity: AUC for different CMR cutoffs",
+       color = NULL, fill = NULL) +
+  mytheme()
+dev.off()
+
+
+
 
 # Among all participants
 # Check numbers in the original paper (same)
@@ -711,28 +953,6 @@ dev.off()
 c(facit_all$AUC1, facit_all$AUC1_b)
 c(facit_all$AUC0, facit_all$AUC0_b)
 c(facit_all$AUC_diff, facit_all$AUC_diff_b)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
